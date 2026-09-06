@@ -12,8 +12,6 @@ import {
 } from "./background/mobile";
 import { UIBackgroundRender } from "./background/renderer/UIBackgroundRender";
 import { WebWorkerBackgroundRender } from "./background/renderer/WebWorkerBackgroundRender";
-import { useI18n } from "../hooks/useI18n";
-import { usePageActive } from "../hooks/usePageActive";
 
 const desktopGradientDefaults = [
   "rgb(60, 20, 80)",
@@ -23,7 +21,6 @@ const desktopGradientDefaults = [
 ];
 
 const easeInOutSine = (t: number) => -(Math.cos(Math.PI * t) - 1) / 2;
-const FLOW_SPEED = 0.8;
 
 const calculateTransform = (layer: FlowingLayer, elapsed: number) => {
   const progress =
@@ -51,9 +48,7 @@ const FluidBackground: React.FC<FluidBackgroundProps> = ({
   coverUrl,
   isMobileLayout = false,
 }) => {
-  const { dict } = useI18n();
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const snapshotRef = useRef<HTMLCanvasElement>(null);
   const rendererRef = useRef<
     UIBackgroundRender | WebWorkerBackgroundRender | null
   >(null);
@@ -65,12 +60,6 @@ const FluidBackground: React.FC<FluidBackgroundProps> = ({
   const coverUrlRef = useRef<string | undefined>(coverUrl);
   const [canvasInstanceKey, setCanvasInstanceKey] = useState(0);
   const previousModeRef = useRef(isMobileLayout);
-  const [frozen, setFrozen] = useState(false);
-  const active = usePageActive();
-  const activeRef = useRef(active);
-  const freezeRef = useRef(0);
-  const mountedRef = useRef(true);
-  activeRef.current = active;
 
   const normalizedColors = useMemo(
     () => (colors && colors.length > 0 ? colors : mobileDefaultColors),
@@ -93,47 +82,6 @@ const FluidBackground: React.FC<FluidBackgroundProps> = ({
   useEffect(() => {
     isPlayingRef.current = isPlaying;
   }, [isPlaying]);
-
-  useEffect(() => {
-    return () => {
-      mountedRef.current = false;
-      freezeRef.current += 1;
-      rendererRef.current?.stop();
-      rendererRef.current = null;
-    };
-  }, []);
-
-  const drawSnapshot = useCallback((bitmap: ImageBitmap) => {
-    const canvas = snapshotRef.current;
-    if (!mountedRef.current || !canvas) {
-      bitmap.close();
-      return;
-    }
-
-    const ctx = canvas.getContext("2d");
-    if (!ctx) {
-      bitmap.close();
-      return;
-    }
-
-    canvas.width = bitmap.width;
-    canvas.height = bitmap.height;
-    ctx.clearRect(0, 0, bitmap.width, bitmap.height);
-    ctx.drawImage(bitmap, 0, 0);
-    bitmap.close();
-    setFrozen(true);
-  }, []);
-
-  const thaw = useCallback(() => {
-    const id = ++freezeRef.current;
-    window.requestAnimationFrame(() => {
-      window.requestAnimationFrame(() => {
-        if (mountedRef.current && freezeRef.current === id) {
-          setFrozen(false);
-        }
-      });
-    });
-  }, []);
 
   useEffect(() => {
     if (previousModeRef.current !== isMobileLayout) {
@@ -186,12 +134,12 @@ const FluidBackground: React.FC<FluidBackgroundProps> = ({
         ctx.fillStyle = "#666";
         ctx.font = "16px sans-serif";
         ctx.textAlign = "center";
-        ctx.fillText(dict.bg.loading, width / 2, height / 2);
+        ctx.fillText("Loading layers...", width / 2, height / 2);
         return;
       }
 
       layersRef.current.forEach((layer, index) => {
-        const transform = calculateTransform(layer, elapsed * FLOW_SPEED);
+        const transform = calculateTransform(layer, elapsed);
         ctx.save();
         ctx.translate(width / 2, height / 2);
         ctx.rotate(transform.rotation);
@@ -212,7 +160,7 @@ const FluidBackground: React.FC<FluidBackgroundProps> = ({
         ctx.restore();
       });
     },
-    [dict.bg.loading],
+    [],
   );
 
   const renderGradientFrame = useCallback((ctx: CanvasRenderingContext2D) => {
@@ -263,43 +211,7 @@ const FluidBackground: React.FC<FluidBackgroundProps> = ({
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    if (!active) {
-      const renderer = rendererRef.current;
-
-      if (renderer instanceof WebWorkerBackgroundRender) {
-        const id = ++freezeRef.current;
-        renderer.setPaused(true);
-        void renderer
-          .snapshot(1000)
-          .then((bitmap) => {
-            if (!bitmap) return;
-            if (!mountedRef.current || freezeRef.current !== id || activeRef.current) {
-              bitmap.close();
-              return;
-            }
-            drawSnapshot(bitmap);
-            if (rendererRef.current === renderer) {
-              renderer.stop();
-              rendererRef.current = null;
-            }
-          });
-        return;
-      }
-
-      rendererRef.current = null;
-      renderer?.stop();
-      return;
-    }
-
     if (canvas.dataset.offscreenTransferred === "true") {
-      const renderer = rendererRef.current;
-      if (renderer instanceof WebWorkerBackgroundRender) {
-        renderer.setPlaying(isPlaying);
-        renderer.setPaused(!isPlaying);
-        thaw();
-        return;
-      }
-
       setCanvasInstanceKey((prev) => prev + 1);
       return;
     }
@@ -330,13 +242,7 @@ const FluidBackground: React.FC<FluidBackgroundProps> = ({
       }
 
       rendererRef.current = workerRenderer;
-      void workerRenderer.waitFrame().finally(() => {
-        if (rendererRef.current === workerRenderer && activeRef.current) {
-          thaw();
-        }
-      });
       return () => {
-        if (!activeRef.current) return;
         workerRenderer.stop();
         rendererRef.current = null;
       };
@@ -350,10 +256,8 @@ const FluidBackground: React.FC<FluidBackgroundProps> = ({
     uiRenderer.setPaused(!isPlaying);
     uiRenderer.start();
     rendererRef.current = uiRenderer;
-    thaw();
 
     return () => {
-      if (!activeRef.current) return;
       uiRenderer.stop();
       rendererRef.current = null;
     };
@@ -362,7 +266,6 @@ const FluidBackground: React.FC<FluidBackgroundProps> = ({
     renderGradientFrame,
     renderMobileFrame,
     canvasInstanceKey,
-    active,
   ]);
 
   // Sync colors, playing state, and cover image to the worker
@@ -394,14 +297,6 @@ const FluidBackground: React.FC<FluidBackgroundProps> = ({
         key={canvasKey}
         className="fixed inset-0 w-full h-full bg-black block"
         style={{ touchAction: "none" }}
-      />
-      <canvas
-        ref={snapshotRef}
-        className="fixed inset-0 w-full h-full bg-black pointer-events-none transition-opacity duration-300 ease-in-out"
-        style={{
-          opacity: frozen ? 1 : 0,
-          touchAction: "none",
-        }}
       />
       <div
         className="fixed inset-0 w-full h-full pointer-events-none opacity-[0.03] mix-blend-overlay"

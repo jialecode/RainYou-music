@@ -1,6 +1,5 @@
 import { useState, useCallback } from "react";
 import { SearchProvider, SearchResultItem } from "./useSearchProvider";
-import { useI18n } from "./useI18n";
 import {
   searchNetEase,
   NeteaseTrackInfo,
@@ -15,7 +14,6 @@ export interface NeteaseSearchProviderExtended extends SearchProvider {
 }
 
 export const useNeteaseSearchProvider = (): NeteaseSearchProviderExtended => {
-  const { dict } = useI18n();
   const [results, setResults] = useState<NeteaseTrackInfo[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [hasMore, setHasMore] = useState(true);
@@ -78,7 +76,7 @@ export const useNeteaseSearchProvider = (): NeteaseSearchProviderExtended => {
 
   const provider: NeteaseSearchProviderExtended = {
     id: "netease",
-    label: dict.search.cloudLabel,
+    label: "Cloud Music",
     requiresExplicitSearch: true,
     isLoading,
     hasMore,

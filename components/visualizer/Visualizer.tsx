@@ -1,7 +1,7 @@
-import React, { useEffect, useRef, useState } from "react";
-import { publishAudioLevel } from "@/services/audioLevelBridge";
-import { usePageActive } from "@/hooks/usePageActive";
+import React, { useEffect, useRef } from "react";
+import { publishAudioLevel } from "../../services/audioLevelBridge";
 import audioProcessorUrl from "./AudioProcessor.ts?worker&url";
+import { useSettings } from "../../hooks/useSettings";
 
 interface VisualizerProps {
     audioRef: React.RefObject<HTMLAudioElement>;
@@ -17,20 +17,20 @@ const FFT_SIZE = 1024;
 const BAR_GAP = 4;
 
 const Visualizer: React.FC<VisualizerProps> = ({ audioRef, isPlaying }) => {
+    const { visualizerStyle } = useSettings();
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const workerRef = useRef<Worker | null>(null);
     const audioContextRef = useRef<AudioContext | null>(null);
     const workletNodeRef = useRef<AudioWorkletNode | null>(null);
-    const [key, setKey] = useState(0);
-    const active = usePageActive();
-    const enabled = isPlaying && active;
+    const analyserNodeRef = useRef<AnalyserNode | null>(null);
+    const animationFrameRef = useRef<number | null>(null);
 
     // Effect 1: Audio Context and Worklet Initialization
     useEffect(() => {
-        if (!enabled) {
+        if (!isPlaying) {
             publishAudioLevel(0);
         }
-    }, [enabled]);
+    }, [isPlaying]);
 
     useEffect(() => {
         const initAudio = async () => {
@@ -44,18 +44,29 @@ const Visualizer: React.FC<VisualizerProps> = ({ audioRef, isPlaying }) => {
             }
             audioContextRef.current = ctx;
 
-            if (ctx.state === "suspended" && enabled) {
+            if (ctx.state === "suspended" && isPlaying) {
                 await ctx.resume();
+            }
+
+            // Always create and store the analyser node
+            if (!analyserNodeRef.current) {
+                const analyser = ctx.createAnalyser();
+                analyser.fftSize = 2048;
+                analyser.smoothingTimeConstant = 0.8;
+                analyserNodeRef.current = analyser;
             }
 
             // Load AudioWorklet
             if (!workletNodeRef.current) {
                 try {
                     console.log("Visualizer: Loading AudioWorklet module...");
-                    // Load the module using a URL pointing to the JS file
                     await ctx.audioWorklet.addModule(audioProcessorUrl);
                     console.log("Visualizer: AudioWorklet module loaded successfully.");
+                } catch (e) {
+                    console.warn("Visualizer: AudioWorklet module might already exist", e);
+                }
 
+                try {
                     const workletNode = new AudioWorkletNode(ctx, "audio-processor");
                     workletNode.port.onmessage = (e) => {
                         if (e.data?.type === "LEVEL" && typeof e.data.level === "number") {
@@ -64,39 +75,48 @@ const Visualizer: React.FC<VisualizerProps> = ({ audioRef, isPlaying }) => {
                     };
                     workletNodeRef.current = workletNode;
                     console.log("Visualizer: AudioWorkletNode created.");
-
-                    // Connect Source -> Worklet -> Destination
-                    if (!sourceMap.has(audioEl)) {
-                        const source = ctx.createMediaElementSource(audioEl);
-                        source.connect(ctx.destination); // Output to speakers
-                        source.connect(workletNode);     // Output to visualizer
-                        sourceMap.set(audioEl, source);
-                    } else {
-                        const source = sourceMap.get(audioEl);
-                        if (source) {
-                            // Ensure connection
-                            try { source.connect(workletNode); } catch (e) { }
-                        }
-                    }
-
                 } catch (e) {
-                    console.error("Visualizer: Failed to load AudioWorklet", e);
+                    console.error("Visualizer: Failed to create AudioWorkletNode", e);
+                }
+            }
+
+            // Connect Source -> Analyser -> Worklet & Destination
+            const analyser = analyserNodeRef.current;
+            const workletNode = workletNodeRef.current;
+            
+            if (analyser) {
+                if (!sourceMap.has(audioEl)) {
+                    const source = ctx.createMediaElementSource(audioEl);
+                    source.connect(analyser);
+                    analyser.connect(ctx.destination);
+                    if (workletNode) analyser.connect(workletNode);
+                    sourceMap.set(audioEl, source);
+                } else {
+                    const source = sourceMap.get(audioEl);
+                    if (source) {
+                        try { 
+                            source.disconnect();
+                            source.connect(analyser);
+                            analyser.connect(ctx.destination);
+                            if (workletNode) analyser.connect(workletNode);
+                        } catch (e) { }
+                    }
                 }
             }
         };
 
-        if (enabled) {
+        if (isPlaying) {
             initAudio();
         }
 
         return () => {
             // Cleanup logic if needed
         };
-    }, [enabled, audioRef]);
+    }, [isPlaying, audioRef]);
 
     // Effect 2: Worker Initialization
     useEffect(() => {
-        if (!enabled) {
+        if (!isPlaying) {
             if (workerRef.current) {
                 workerRef.current.postMessage({ type: "DESTROY" });
                 workerRef.current.terminate();
@@ -110,11 +130,6 @@ const Visualizer: React.FC<VisualizerProps> = ({ audioRef, isPlaying }) => {
             return;
         }
 
-        if (canvasEl.dataset.offscreenTransferred === "true") {
-            setKey((prev) => prev + 1);
-            return;
-        }
-
         if (workerRef.current) {
             return;
         }
@@ -125,9 +140,6 @@ const Visualizer: React.FC<VisualizerProps> = ({ audioRef, isPlaying }) => {
             return;
         }
 
-        let cancelled = false;
-        let raf = 0;
-
         try {
             const worker = new Worker(new URL("./VisualizerWorker.ts", import.meta.url), {
                 type: "module"
@@ -135,11 +147,12 @@ const Visualizer: React.FC<VisualizerProps> = ({ audioRef, isPlaying }) => {
             workerRef.current = worker;
 
             const dpr = window.devicePixelRatio || 1;
-            canvasEl.width = 1000 * dpr;
-            canvasEl.height = 80 * dpr;
+            const targetW = visualizerStyle === "circular" ? 1200 : 1000;
+            const targetH = visualizerStyle === "circular" ? 1200 : 80;
+            canvasEl.width = targetW * dpr;
+            canvasEl.height = targetH * dpr;
 
             const offscreen = canvasEl.transferControlToOffscreen();
-            canvasEl.dataset.offscreenTransferred = "true";
 
             const channel = new MessageChannel();
 
@@ -152,32 +165,30 @@ const Visualizer: React.FC<VisualizerProps> = ({ audioRef, isPlaying }) => {
                         gap: BAR_GAP,
                         fftSize: FFT_SIZE,
                         smoothingTimeConstant: 0.5,
-                        dpr: dpr
+                        dpr: dpr,
+                        style: visualizerStyle
                     },
                     port: channel.port1
                 },
                 [offscreen, channel.port1]
             );
 
-            const sendPortToWorklet = () => {
-                if (cancelled) return;
-                if (workletNodeRef.current) {
-                    workletNodeRef.current.port.postMessage({ type: "PORT", port: channel.port2 }, [
-                        channel.port2
-                    ]);
-                } else {
-                    raf = requestAnimationFrame(sendPortToWorklet);
+            const sendFFTToWorker = () => {
+                if (analyserNodeRef.current && workerRef.current) {
+                    const dataArray = new Uint8Array(analyserNodeRef.current.frequencyBinCount);
+                    analyserNodeRef.current.getByteFrequencyData(dataArray);
+                    workerRef.current.postMessage({ type: "FFT_DATA", data: dataArray });
                 }
+                animationFrameRef.current = requestAnimationFrame(sendFFTToWorker);
             };
-            sendPortToWorklet();
+            sendFFTToWorker();
         } catch (e) {
             console.error("Visualizer: Failed to initialize worker", e);
         }
 
         return () => {
-            cancelled = true;
-            if (raf) {
-                cancelAnimationFrame(raf);
+            if (animationFrameRef.current) {
+                cancelAnimationFrame(animationFrameRef.current);
             }
             if (workerRef.current) {
                 workerRef.current.postMessage({ type: "DESTROY" });
@@ -186,15 +197,37 @@ const Visualizer: React.FC<VisualizerProps> = ({ audioRef, isPlaying }) => {
             }
             publishAudioLevel(0);
         };
-    }, [enabled, key]);
+    }, [isPlaying]);
 
-    if (!isPlaying) return <div className="h-10 w-full"></div>;
+    // Effect 3: Sync visualizer configuration
+    useEffect(() => {
+        if (!workerRef.current) return;
+
+        workerRef.current.postMessage({
+            type: "UPDATE_CONFIG",
+            config: { style: visualizerStyle }
+        });
+
+        // Also inform the worker of the updated effective dimensions
+        const dpr = window.devicePixelRatio || 1;
+        const targetW = visualizerStyle === "circular" ? 1200 : 1000;
+        const targetH = visualizerStyle === "circular" ? 1200 : 80;
+        workerRef.current.postMessage({
+            type: "RESIZE",
+            width: targetW * dpr,
+            height: targetH * dpr
+        });
+    }, [visualizerStyle]);
+
+    if (!isPlaying) return <div className={`w-full ${visualizerStyle === "circular" ? "aspect-square" : "h-10"}`}></div>;
 
     return (
         <canvas
             ref={canvasRef}
-            key={key}
-            className="w-full h-10 transition-opacity duration-500"
+            className={`w-full transition-opacity duration-500 ${visualizerStyle === "circular"
+                    ? "w-full h-full max-w-[90vw] max-h-[90vh] aspect-square object-contain"
+                    : "h-10"
+                }`}
         />
     );
 };

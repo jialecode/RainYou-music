@@ -4,12 +4,11 @@ import { SearchIcon, PlayIcon, PlusIcon } from "./Icons";
 import SmartImage from "./SmartImage";
 import { Song } from "../types";
 import {
-  getNeteaseAudioUrl,
   NeteaseTrackInfo,
 } from "../services/lyricsService";
-import { useI18n } from "../hooks/useI18n";
 import { useKeyboardScope } from "../hooks/useKeyboardScope";
 import { useSearchModal } from "../hooks/useSearchModal";
+import { toNeteaseSong } from "../services/discover";
 
 interface SearchModalProps {
   isOpen: boolean;
@@ -81,8 +80,6 @@ const SearchModal: React.FC<SearchModalProps> = ({
   isPlaying,
   accentColor,
 }) => {
-  const { dict } = useI18n();
-
   // Animation State
   const [isRendering, setIsRendering] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
@@ -203,41 +200,11 @@ const SearchModal: React.FC<SearchModalProps> = ({
   };
 
   const playNeteaseTrack = (track: NeteaseTrackInfo) => {
-    const origin = getNeteaseAudioUrl(track.id);
-    const song: Song = {
-      id: track.id,
-      title: track.title,
-      artist: track.artist,
-      coverUrl: track.coverUrl.replace("http:", "https:"),
-      fileUrl: origin,
-      source: "remote",
-      origin,
-      isNetease: true,
-      neteaseId: track.neteaseId,
-      album: track.album,
-      lyrics: [],
-      needsLyricsMatch: true,
-    };
-    onImportAndPlay(song);
+    onImportAndPlay(toNeteaseSong(track));
   };
 
   const addNeteaseToQueue = (track: NeteaseTrackInfo) => {
-    const origin = getNeteaseAudioUrl(track.id);
-    const song: Song = {
-      id: track.id,
-      title: track.title,
-      artist: track.artist,
-      coverUrl: track.coverUrl.replace("http:", "https:"),
-      fileUrl: origin,
-      source: "remote",
-      origin,
-      isNetease: true,
-      neteaseId: track.neteaseId,
-      album: track.album,
-      lyrics: [],
-      needsLyricsMatch: true,
-    };
-    onAddToQueue(song);
+    onAddToQueue(toNeteaseSong(track));
   };
 
   // Reset refs
@@ -329,8 +296,8 @@ const SearchModal: React.FC<SearchModalProps> = ({
               onChange={(e) => search.setQuery(e.target.value)}
               placeholder={
                 search.activeTab === "netease"
-                  ? dict.search.online
-                  : dict.search.queue
+                  ? "Search online..."
+                  : "Filter queue..."
               }
               className="
                         w-full pl-12 pr-4 py-3.5
@@ -357,7 +324,7 @@ const SearchModal: React.FC<SearchModalProps> = ({
             <div className="relative flex flex-col gap-1">
               {search.queueResults.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-64 text-white/20">
-                  <span className="text-lg">{dict.search.emptyQueue}</span>
+                  <span className="text-lg">No songs in queue</span>
                 </div>
               ) : (
                 <>
@@ -463,11 +430,11 @@ const SearchModal: React.FC<SearchModalProps> = ({
                 <div className="flex flex-col items-center justify-center h-64 text-white/30">
                   <SearchIcon className="w-12 h-12 mb-4 opacity-20" />
                   <span className="text-base font-medium">
-                    {dict.search.press}{" "}
+                    Press{" "}
                     <kbd className="px-2 py-1 bg-white/10 rounded text-white/60">
                       Enter
                     </kbd>{" "}
-                    {dict.search.toSearch}
+                    to search
                   </span>
                 </div>
               )}
@@ -477,7 +444,7 @@ const SearchModal: React.FC<SearchModalProps> = ({
                 <div className="flex flex-col items-center justify-center h-64 text-white/20">
                   <SearchIcon className="w-12 h-12 mb-4 opacity-20" />
                   <span className="text-base font-medium">
-                    {dict.search.noMatches}
+                    No matches found
                   </span>
                 </div>
               )}
@@ -486,7 +453,7 @@ const SearchModal: React.FC<SearchModalProps> = ({
               {search.showNeteaseLoading && (
                 <div className="flex flex-col items-center justify-center h-64 text-white/20">
                   <div className="w-8 h-8 border-2 border-white/20 border-t-white/60 rounded-full animate-spin mb-4"></div>
-                  <span className="text-base font-medium">{dict.search.loading}</span>
+                  <span className="text-base font-medium">Searching...</span>
                 </div>
               )}
 
@@ -495,7 +462,7 @@ const SearchModal: React.FC<SearchModalProps> = ({
                 <div className="flex flex-col items-center justify-center h-64 text-white/20">
                   <SearchIcon className="w-12 h-12 mb-4 opacity-20" />
                   <span className="text-base font-medium">
-                    {dict.search.searchCloud}
+                    Search Cloud Music
                   </span>
                 </div>
               )}
@@ -592,7 +559,7 @@ const SearchModal: React.FC<SearchModalProps> = ({
                               }
                                         `}
                           >
-                            {dict.search.cloud}
+                            Cloud
                           </span>
                         </div>
                       </div>
@@ -606,7 +573,7 @@ const SearchModal: React.FC<SearchModalProps> = ({
                         <div className="w-5 h-5 border-2 border-white/20 border-t-white/60 rounded-full animate-spin"></div>
                       ) : (
                         <div className="text-white/20 text-xs">
-                          {dict.search.more}
+                          Scroll for more
                         </div>
                       )}
                     </div>
@@ -643,7 +610,7 @@ const SearchModal: React.FC<SearchModalProps> = ({
                 className="flex items-center gap-3 px-3 py-2 text-left text-[13px] text-white/90 hover:bg-blue-500 hover:text-white rounded-lg transition-colors"
               >
                 <PlayIcon className="w-4 h-4" />
-                {dict.search.playNow}
+                Play Now
               </button>
 
               {search.contextMenu.type === "netease" && (
@@ -658,7 +625,7 @@ const SearchModal: React.FC<SearchModalProps> = ({
                   className="flex items-center gap-3 px-3 py-2 text-left text-[13px] text-white/90 hover:bg-blue-500 hover:text-white rounded-lg transition-colors"
                 >
                   <PlusIcon className="w-4 h-4" />
-                  {dict.search.addToQueue}
+                  Add to Queue
                 </button>
               )}
             </div>,

@@ -1,5 +1,4 @@
 import { useMemo } from "react";
-import { useI18n } from "./useI18n";
 import { Song } from "../types";
 import { SearchProvider } from "./useSearchProvider";
 
@@ -10,12 +9,10 @@ interface UseQueueSearchProviderParams {
 export const useQueueSearchProvider = ({
   queue,
 }: UseQueueSearchProviderParams): SearchProvider => {
-  const { dict } = useI18n();
-
   const provider: SearchProvider = useMemo(
     () => ({
       id: "queue",
-      label: dict.search.queueLabel,
+      label: "Current Queue",
       requiresExplicitSearch: false,
       isLoading: false,
       hasMore: false,
@@ -34,7 +31,7 @@ export const useQueueSearchProvider = ({
         );
       },
     }),
-    [dict.search.queueLabel, queue]
+    [queue]
   );
 
   return provider;

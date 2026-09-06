@@ -1,10 +1,11 @@
 import React, { useState, useRef, useEffect } from "react";
 import { useSpring, animated, useTransition, to } from "@react-spring/web";
 import { formatTime } from "../services/utils";
-import { useI18n } from "../hooks/useI18n";
-import { useFitScale } from "../hooks/useFitScale";
 import Visualizer from "./visualizer/Visualizer";
 import SmartImage from "./SmartImage";
+import Cover from "./Cover";
+import { useSettings } from "../hooks/useSettings";
+import { subscribeAudioLevel } from "../services/audioLevelBridge";
 import {
   LoopIcon,
   LoopOneIcon,
@@ -15,8 +16,8 @@ import {
   VolumeLowIcon,
   VolumeMuteFilledIcon,
   VolumeMuteIcon,
-  PlayIcon,
   PauseIcon,
+  PlayIcon,
   PrevIcon,
   NextIcon,
   SettingsIcon,
@@ -85,7 +86,7 @@ const Controls: React.FC<ControlsProps> = ({
   isBuffering,
   playlistPanel,
 }) => {
-  const { dict } = useI18n();
+  const { visualizerStyle, amplitudeAnimation } = useSettings();
   const volumeContainerRef = useRef<HTMLDivElement>(null);
   const settingsContainerRef = useRef<HTMLDivElement>(null);
 
@@ -272,6 +273,7 @@ const Controls: React.FC<ControlsProps> = ({
   const displayTime = isSeeking ? seekTime : interpolatedTime;
 
   const [coverSpring, coverApi] = useSpring(() => ({
+    scale: 1,
     boxShadow: isPlaying
       ? "0 12px 24px rgba(0,0,0,0.32)"
       : "0 6px 14px rgba(0,0,0,0.18)",
@@ -280,21 +282,44 @@ const Controls: React.FC<ControlsProps> = ({
 
   useEffect(() => {
     coverApi.start({
+      scale: 1,
       boxShadow: isPlaying
         ? "0 12px 24px rgba(0,0,0,0.32)"
         : "0 6px 14px rgba(0,0,0,0.18)",
+      config: { tension: 300, friction: 30 },
     });
   }, [isPlaying, coverApi]);
 
-  // Cover breathes with playback: larger while playing, smaller while paused.
-  // Drives the cover transform below; paused stays small (no shrink-then-rebound).
-  const coverScaleSpring = useSpring({
-    scale: isPlaying ? 1.02 : 0.97,
-    config: {
-      tension: isPlaying ? 320 : 260,
-      friction: isPlaying ? 22 : 30,
-    },
-  });
+  useEffect(() => {
+    if (!amplitudeAnimation || !isPlaying) return;
+    const unsubscribe = subscribeAudioLevel((level) => {
+      coverApi.start({
+        scale: 1 + (level * 0.08),
+        config: { tension: 350, friction: 15 },
+      });
+    });
+    return () => {
+      unsubscribe();
+    };
+  }, [amplitudeAnimation, isPlaying, coverApi]);
+
+  useEffect(() => {
+    if (!coverUrl) return;
+    coverApi.start({
+      scale: 0.95,
+      config: { tension: 320, friction: 24 },
+    });
+    const timeout = window.setTimeout(() => {
+      coverApi.start({
+        scale: 1,
+        boxShadow: isPlaying
+          ? "0 12px 24px rgba(0,0,0,0.32)"
+          : "0 6px 14px rgba(0,0,0,0.18)",
+        config: { tension: 260, friction: 32 },
+      });
+    }, 180);
+    return () => clearTimeout(timeout);
+  }, [coverUrl, isPlaying, coverApi]);
 
   // Close popups when clicking outside
   useEffect(() => {
@@ -381,49 +406,41 @@ const Controls: React.FC<ControlsProps> = ({
     return <VolumeHighFilledIcon className="w-4 h-4" />;
   };
 
+  const controlsScaleSpring = useSpring({
+    scale: isPlaying ? 1.02 : 0.97,
+    config: {
+      tension: isPlaying ? 320 : 260,
+      friction: isPlaying ? 22 : 30,
+    },
+    immediate: false,
+  });
+
   // Calculate buffered percentage from actual audio buffered time
   const bufferedWidthPercent = duration > 0
     ? Math.min(100, Math.max(0, (bufferedEnd / duration) * 100))
     : 0;
 
-  const { ref: fitRef, height: fitHeight, scale: fitScale } = useFitScale<HTMLDivElement>();
-
   return (
-    <div
-      className="w-full max-w-[480px] mx-auto"
-      style={{ height: fitHeight > 0 ? fitHeight : undefined }}
-    >
-      <div
-        ref={fitRef}
-        className="w-full flex flex-col items-center justify-center text-white select-none p-4 sm:p-6 font-sans origin-top"
-        style={{
-          transform: fitScale < 1 ? `scale(${fitScale})` : undefined,
-          transformOrigin: "top center",
-        }}
-      >
-        {/* Cover Section */}
+    <div className="w-full max-w-[480px] flex flex-col items-center justify-center text-white select-none mx-auto p-4 sm:p-6 font-sans">
+      {/* Cover AND Circular Visualizer Section */}
+      <div className="relative w-full aspect-square mb-8 flex items-center justify-center">
+        {/* Absolute Circular Visualizer Behind Cover if not in player full screen mode */}
+        {visualizerStyle === "circular" && (
+          <div className="absolute inset-[-10%] z-0 pointer-events-none mix-blend-screen opacity-60 flex items-center justify-center">
+            <Visualizer audioRef={audioRef} isPlaying={isPlaying} />
+          </div>
+        )}
+
         <animated.div
           style={{
             boxShadow: coverSpring.boxShadow,
-            transform: coverScaleSpring.scale.to((s) => `scale(${s})`),
+            transform: coverSpring.scale.to((s) => `scale(${s})`),
           }}
-          className="relative aspect-square w-full rounded-2xl bg-gradient-to-br from-gray-800 to-gray-900 overflow-hidden mb-10"
+          className="relative z-10 aspect-square w-[88%] sm:w-[92%] rounded-full overflow-hidden flex items-center justify-center bg-zinc-950"
         >
-          {coverUrl ? (
-            <SmartImage
-              src={coverUrl}
-              alt={dict.controls.albumArt}
-              containerClassName="absolute inset-0 overflow-hidden"
-              imgClassName="absolute inset-0 block w-full h-full object-cover"
-              loading="eager"
-            />
-          ) : (
-            <div className="absolute inset-0 flex flex-col items-center justify-center text-white/20">
-              <div className="text-8xl mb-4">♪</div>
-              <p className="text-sm">{dict.controls.noMusic}</p>
-            </div>
-          )}
+          <Cover src={coverUrl} isPlaying={isPlaying} />
         </animated.div>
+      </div>
 
       {/* Song Info */}
       <div className="w-full flex items-center justify-between mb-8 px-1">
@@ -439,7 +456,7 @@ const Controls: React.FC<ControlsProps> = ({
           <button
             onClick={() => setShowSettingsPopup(!showSettingsPopup)}
             className="w-8 h-8 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 active:scale-95 transition-all outline-none flex-shrink-0"
-            title={dict.controls.settings}
+            title="Settings/More"
           >
             <div className="flex gap-[3px]">
               <div className="w-1 h-1 bg-white rounded-full opacity-90"></div>
@@ -463,10 +480,12 @@ const Controls: React.FC<ControlsProps> = ({
         </div>
       </div>
 
-      {/* Visualizer */}
-      <div className="w-full flex justify-center h-10 mb-4 opacity-40 px-1">
-        <Visualizer audioRef={audioRef} isPlaying={isPlaying} />
-      </div>
+      {/* Default Linear & Wave Visualizer */}
+      {visualizerStyle !== "circular" && (
+        <div className="w-full flex justify-center h-10 mb-4 opacity-40 px-1">
+          <Visualizer audioRef={audioRef} isPlaying={isPlaying} />
+        </div>
+      )}
 
       {/* Progress Bar */}
       <div className="w-full flex flex-col group/bar relative mb-8 px-1">
@@ -494,7 +513,7 @@ const Controls: React.FC<ControlsProps> = ({
             value={displayTime}
             onPointerDown={startSeek}
             onInput={(e) => {
-              const time = parseFloat(e.target.value);
+              const time = parseFloat((e.target as HTMLInputElement).value);
               dragSeek(time);
             }}
             onChange={(e) => {
@@ -513,41 +532,41 @@ const Controls: React.FC<ControlsProps> = ({
           />
         </div>
 
-        <div className="flex justify-between w-full mt-1.5 text-[10px] font-semibold text-white/50 tracking-widest uppercase">
+        <div className="flex justify-between w-full mt-2 text-[10px] font-semibold text-white/50 tracking-widest uppercase">
           <span>{formatTime(displayTime)}</span>
           <span>{duration > 0 ? `-${formatTime(duration - displayTime)}` : "0:00"}</span>
         </div>
       </div>
 
       {/* Main Controls Row */}
-      <div className="w-full flex items-center justify-between mb-8 px-0">
+      <div className="w-full flex items-center justify-between mb-10 px-0">
         <button
           onClick={onToggleMode}
-          className="text-white/70 hover:bg-white/10 hover:text-white rounded-full p-2.5 transition-colors active:bg-white/20 outline-none"
-          title={dict.controls.playback}
+          className="text-white/70 hover:bg-white/10 hover:text-white rounded-full p-3 transition-colors active:bg-white/20 outline-none"
+          title="Playback Mode"
         >
           {getModeIcon()}
         </button>
 
         <button
           onClick={onPrev}
-          className="text-white hover:bg-white/10 rounded-full p-2.5 transition-colors active:bg-white/20 outline-none flex items-center justify-center transform active:scale-95"
-          aria-label={dict.controls.previous}
+          className="text-white hover:bg-white/10 rounded-full p-3 transition-colors active:bg-white/20 outline-none flex items-center justify-center transform active:scale-95"
+          aria-label="Previous"
         >
-          <PrevIcon className="w-8 h-8 fill-current" />
+          <PrevIcon className="w-10 h-10 fill-current" />
         </button>
 
         <button
           onClick={onPlayPause}
-          className="relative flex items-center justify-center p-3 hover:bg-white/10 rounded-full active:bg-white/20 transition-all outline-none transform active:scale-95 text-white"
+          className="relative flex items-center justify-center p-5 hover:bg-white/10 rounded-full active:bg-white/20 transition-all outline-none transform active:scale-95 text-white"
         >
-          <div className="relative w-10 h-10 flex items-center justify-center">
+          <div className="relative w-12 h-12">
             <PauseIcon
-              className={`absolute w-full h-full fill-current transition-all duration-300 ${isPlaying ? "opacity-100 scale-100 rotate-0" : "opacity-0 scale-50 -rotate-90"
+              className={`absolute inset-0 w-full h-full fill-current transition-all duration-300 ${isPlaying ? "opacity-100 scale-100 rotate-0" : "opacity-0 scale-50 -rotate-90"
                 }`}
             />
             <PlayIcon
-              className={`absolute w-full h-full fill-current transition-all duration-300 ${!isPlaying ? "opacity-100 scale-100 rotate-0" : "opacity-0 scale-50 rotate-90"
+              className={`absolute inset-0 w-full h-full fill-current transition-all duration-300 ${!isPlaying ? "opacity-100 scale-100 rotate-0" : "opacity-0 scale-50 rotate-90"
                 }`}
             />
           </div>
@@ -555,17 +574,17 @@ const Controls: React.FC<ControlsProps> = ({
 
         <button
           onClick={onNext}
-          className="text-white hover:bg-white/10 rounded-full p-2.5 transition-colors active:bg-white/20 outline-none flex items-center justify-center transform active:scale-95"
-          aria-label={dict.controls.next}
+          className="text-white hover:bg-white/10 rounded-full p-3 transition-colors active:bg-white/20 outline-none flex items-center justify-center transform active:scale-95"
+          aria-label="Next"
         >
-          <NextIcon className="w-8 h-8 fill-current" />
+          <NextIcon className="w-10 h-10 fill-current" />
         </button>
 
         <div className="relative flex items-center justify-center">
           <button
             onClick={onTogglePlaylist}
-            className="text-white/70 hover:bg-white/10 hover:text-white rounded-full p-2.5 transition-colors active:bg-white/20 outline-none"
-            title={dict.controls.queue}
+            className="text-white/70 hover:bg-white/10 hover:text-white rounded-full p-3 transition-colors active:bg-white/20 outline-none"
+            title="Queue"
           >
             <QueueIcon className="w-6 h-6 fill-current" />
           </button>
@@ -574,12 +593,12 @@ const Controls: React.FC<ControlsProps> = ({
       </div>
 
       {/* Inline Volume Slider */}
-      <div className="w-full flex items-center gap-3 group/vol mb-2 px-1 mt-2">
-        <VolumeLowIcon className="w-3.5 h-3.5 text-white/60 fill-current" />
-        <div className="relative flex-1 h-2 flex items-center cursor-pointer">
-          <div className="absolute inset-x-0 h-1 bg-white/20 rounded-full group-hover/vol:h-2 transition-[height] duration-200"></div>
+      <div className="w-full flex items-center gap-3 group/vol mb-4 px-2">
+        <VolumeLowIcon className="w-4 h-4 text-white/60 fill-current" />
+        <div className="relative flex-1 h-3 flex items-center cursor-pointer">
+          <div className="absolute inset-x-0 h-[5px] bg-white/20 rounded-full group-hover/vol:h-[10px] transition-[height] duration-200"></div>
           <div
-            className="absolute left-0 h-1 bg-white rounded-full group-hover/vol:h-2 transition-[height] duration-200 pointer-events-none"
+            className="absolute left-0 h-[5px] bg-white rounded-full group-hover/vol:h-[10px] transition-[height] duration-200 pointer-events-none"
             style={{ width: `${volume * 100}%` }}
           ></div>
           <input
@@ -593,8 +612,7 @@ const Controls: React.FC<ControlsProps> = ({
             className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10 touch-none"
           />
         </div>
-        <VolumeHighIcon className="w-3.5 h-3.5 text-white/60 fill-current" />
-      </div>
+        <VolumeHighIcon className="w-4 h-4 text-white/60 fill-current" />
       </div>
     </div>
   );
@@ -673,17 +691,84 @@ const SettingsPopup: React.FC<SettingsPopupProps> = ({
   speed,
   onSpeedChange,
 }) => {
-  const { dict } = useI18n();
   const { speedH } = useSpring({
     speedH: ((speed - 0.5) / 1.5) * 100,
     config: { tension: 210, friction: 20 },
   });
+
+  const {
+    lyricAnimation, setLyricAnimation,
+    visualizerStyle, setVisualizerStyle,
+    amplitudeAnimation, setAmplitudeAnimation
+  } = useSettings();
 
   return (
     <animated.div
       style={style}
       className="absolute bottom-full left-1/2 -translate-x-1/2 mb-8 z-50 p-4 rounded-[26px] bg-black/10 backdrop-blur-[100px] saturate-150 shadow-[0_20px_50px_rgba(0,0,0,0.3)] border border-white/5 flex gap-4 cursor-auto"
     >
+      {/* Visualizer Settings Column */}
+      <div className="flex flex-col items-center gap-2 w-[4.5rem]">
+        <div className="flex flex-col gap-1.5 w-full bg-white/20 rounded-[20px] p-2 backdrop-blur-[28px] h-[150px] justify-between">
+          <div className="flex flex-col flex-1 h-3/4 justify-center gap-[2px] mb-1">
+            <button
+              onClick={() => setVisualizerStyle("circular")}
+              className={`flex-1 rounded-xl flex items-center justify-center text-[10px] font-bold transition-colors ${visualizerStyle === "circular" ? "bg-white text-black drop-shadow-sm" : "text-white hover:bg-white/20"}`}
+              title="Circular Visualizer"
+            >
+              Circ
+            </button>
+            <button
+              onClick={() => setVisualizerStyle("default")}
+              className={`flex-1 rounded-xl flex items-center justify-center text-[10px] font-bold transition-colors ${visualizerStyle === "default" ? "bg-white text-black drop-shadow-sm" : "text-white hover:bg-white/20"}`}
+              title="Linear Visualizer"
+            >
+              Line
+            </button>
+            <button
+              onClick={() => setVisualizerStyle("wave")}
+              className={`flex-1 rounded-xl flex items-center justify-center text-[10px] font-bold transition-colors ${visualizerStyle === "wave" ? "bg-white text-black drop-shadow-sm" : "text-white hover:bg-white/20"}`}
+              title="Wave Visualizer"
+            >
+              Wave
+            </button>
+          </div>
+          <div className="w-full h-px bg-white/20"></div>
+          <button
+            onClick={() => setAmplitudeAnimation(!amplitudeAnimation)}
+            className={`flex-1 rounded-xl flex items-center justify-center text-xs font-bold transition-colors mt-1 ${amplitudeAnimation ? "bg-white text-black drop-shadow-sm" : "text-white hover:bg-white/20"}`}
+            title="Pulse Animation"
+          >
+            Pulse
+          </button>
+        </div>
+        <span className="text-[10px] font-medium text-white/60">Audio</span>
+      </div>
+      {/* Lyric Animation Style */}
+      <div className="flex flex-col items-center gap-2 w-[4.5rem]">
+        <div className="flex flex-col gap-1.5 w-full bg-white/20 rounded-[20px] p-2 backdrop-blur-[28px] h-[150px] justify-between">
+          <button
+            onClick={() => setLyricAnimation("default")}
+            className={`flex-1 rounded-xl flex items-center justify-center text-xs font-bold transition-colors ${lyricAnimation === "default" ? "bg-white text-black drop-shadow-sm" : "text-white hover:bg-white/20"}`}
+          >
+            Orig
+          </button>
+          <button
+            onClick={() => setLyricAnimation("3d")}
+            className={`flex-1 rounded-xl flex items-center justify-center text-xs font-bold transition-colors ${lyricAnimation === "3d" ? "bg-white text-black drop-shadow-sm" : "text-white hover:bg-white/20"}`}
+          >
+            3D
+          </button>
+          <button
+            onClick={() => setLyricAnimation("irregular")}
+            className={`flex-1 rounded-xl flex items-center justify-center text-[10px] font-bold transition-colors ${lyricAnimation === "irregular" ? "bg-white text-black drop-shadow-sm" : "text-white hover:bg-white/20"}`}
+          >
+            Magic
+          </button>
+        </div>
+        <span className="text-[10px] font-medium text-white/60">Lyrics</span>
+      </div>
+
       {/* Speed Control */}
       <div className="flex flex-col items-center gap-2 w-12">
         <div className="h-[150px] w-full relative rounded-[20px] bg-white/20 overflow-hidden backdrop-blur-[28px]">
@@ -710,23 +795,23 @@ const SettingsPopup: React.FC<SettingsPopupProps> = ({
             {speed.toFixed(2)}x
           </div>
         </div>
-        <span className="text-[10px] font-medium text-white/60">{dict.controls.speed}</span>
+        <span className="text-[10px] font-medium text-white/60">Speed</span>
       </div>
 
       {/* Toggle Preserves Pitch */}
-      <div className="flex flex-col items-center justify-end gap-2 w-[68px] pb-6">
+      <div className="flex flex-col items-center justify-end gap-2 w-12 pb-6">
         <button
           onClick={onTogglePreservesPitch}
-          className={`w-14 h-14 rounded-full flex items-center justify-center transition-colors duration-200 ${preservesPitch ? "bg-white/20 text-white" : "bg-white text-black"
+          className={`w-12 h-12 rounded-full flex items-center justify-center transition-colors duration-200 ${preservesPitch ? "bg-white/20 text-white" : "bg-white text-black"
             }`}
-          title={preservesPitch ? dict.controls.original : dict.controls.nightcore}
+          title={preservesPitch ? "Tone Preserved" : "Vinyl Mode"}
         >
-          <span className="text-[11px] font-bold tracking-[0.04em]">
-            {preservesPitch ? dict.controls.originalShort : dict.controls.nightcoreShort}
+          <span className="text-xs font-bold">
+            {preservesPitch ? "Dig" : "Vin"}
           </span>
         </button>
         <span className="text-[10px] font-medium text-white/60 text-center leading-tight">
-          {preservesPitch ? dict.controls.original : dict.controls.nightcore}
+          {preservesPitch ? "Digital" : "Vinyl"}
         </span>
       </div>
     </animated.div>

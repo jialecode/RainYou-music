@@ -1,16 +1,12 @@
 import React, { useRef, useEffect, useState, useMemo } from "react";
 import { LyricLine as LyricLineType } from "../types";
-import {
-  getActiveState,
-  getAnchors,
-  useLyricsPhysics,
-} from "../hooks/useLyricsPhysics";
+import { getActiveState, useLyricsPhysics } from "../hooks/useLyricsPhysics";
 import { useCanvasRenderer } from "../hooks/useCanvasRenderer";
 import { LyricLine } from "./lyrics/LyricLine";
 import { InterludeDots } from "./lyrics/InterludeDots";
 import { ILyricLine } from "./lyrics/ILyricLine";
 import { LineAnimationState } from "../hooks/useAnimationInterpolator";
-import { useI18n } from "../hooks/useI18n";
+import { useSettings } from "../hooks/useSettings";
 
 interface LyricsViewProps {
   lyrics: LyricLineType[];
@@ -29,14 +25,14 @@ const LyricsView: React.FC<LyricsViewProps> = ({
   onSeekRequest,
   matchStatus,
 }) => {
-  const { dict } = useI18n();
+  const { lyricAnimation } = useSettings();
   const [isMobile, setIsMobile] = useState(false);
   const [lyricLines, setLyricLines] = useState<ILyricLine[]>([]);
   const [mobileHoverIndex, setMobileHoverIndex] = useState<number | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(0);
   const [containerHeight, setContainerHeight] = useState(0);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mobileHoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Detect mobile layout
   useEffect(() => {
@@ -67,29 +63,33 @@ const LyricsView: React.FC<LyricsViewProps> = ({
   }, [currentTime, isMobile]);
 
   useEffect(() => {
-    if (timerRef.current) {
-      clearTimeout(timerRef.current);
-      timerRef.current = null;
-    }
-
-    if (!isMobile || mobileHoverIndex === null) {
+    if (!isMobile) {
+      if (mobileHoverTimeoutRef.current) {
+        clearTimeout(mobileHoverTimeoutRef.current);
+        mobileHoverTimeoutRef.current = null;
+      }
       return;
     }
 
-    timerRef.current = setTimeout(() => {
-      setMobileHoverIndex(null);
-      timerRef.current = null;
-    }, 5000);
+    if (mobileHoverTimeoutRef.current) {
+      clearTimeout(mobileHoverTimeoutRef.current);
+      mobileHoverTimeoutRef.current = null;
+    }
+
+    if (mobileHoverIndex !== null) {
+      mobileHoverTimeoutRef.current = setTimeout(() => {
+        setMobileHoverIndex(null);
+        mobileHoverTimeoutRef.current = null;
+      }, 5000);
+    }
 
     return () => {
-      if (timerRef.current) {
-        clearTimeout(timerRef.current);
-        timerRef.current = null;
+      if (mobileHoverTimeoutRef.current) {
+        clearTimeout(mobileHoverTimeoutRef.current);
+        mobileHoverTimeoutRef.current = null;
       }
     };
   }, [mobileHoverIndex, isMobile]);
-
-  const anchors = useMemo(() => getAnchors(lyrics), [lyrics]);
 
   // Measure Container Width
   useEffect(() => {
@@ -154,35 +154,28 @@ const LyricsView: React.FC<LyricsViewProps> = ({
     setLyricLines(lines);
     // Clear stale animation states when lyrics are re-measured
     lineAnimStatesRef.current.clear();
-    lineOpacityRef.current.clear();
   }, [lyrics, containerWidth, isMobile]);
 
   // Calculate layout properties for physics
-  const { linePositions, lineHeights, focusOffsets } = useMemo(() => {
+  const { linePositions, lineHeights } = useMemo(() => {
     const positions: number[] = [];
     const heights: number[] = [];
-    const focuses: number[] = [];
     let currentY = 0;
 
     lyricLines.forEach((line) => {
       const h = line.getHeight();
       positions.push(currentY);
       heights.push(h);
-      focuses.push(line.getFocusOffset());
       currentY += h; // Don't add marginY here anymore
     });
 
-    return {
-      linePositions: positions,
-      lineHeights: heights,
-      focusOffsets: focuses,
-    };
+    return { linePositions: positions, lineHeights: heights };
   }, [lyricLines]);
 
-  const marginY = 0;
+  const marginY = 18;
 
   // Physics Hook
-  const { anchorRef, handlers, linesState, modeRef, updatePhysics } = useLyricsPhysics(
+  const { handlers, linesState, updatePhysics } = useLyricsPhysics(
     {
       lyrics,
       audioRef,
@@ -191,19 +184,12 @@ const LyricsView: React.FC<LyricsViewProps> = ({
       containerHeight: containerHeight > 0 ? containerHeight : 800,
       linePositions,
       lineHeights,
-      focusOffsets,
       marginY,
     },
   );
-  const handlersRef = useRef(handlers);
-
-  useEffect(() => {
-    handlersRef.current = handlers;
-  }, [handlers]);
 
   // Mouse Interaction State
   const mouseRef = useRef({ x: 0, y: 0 });
-  const hoverRef = useRef(false);
   const visualTimeRef = useRef(currentTime);
   const touchIntentRef = useRef({
     id: null as number | null,
@@ -212,79 +198,45 @@ const LyricsView: React.FC<LyricsViewProps> = ({
     lockedToLyrics: false,
     lockDecided: false,
   });
-  const gestureRef = useRef({
-    startX: 0,
-    startY: 0,
-    moved: false,
-    suppress: false,
-  });
 
   // Per-line animation state (hover fade, press scale, blur transition)
   const lineAnimStatesRef = useRef<Map<number, LineAnimationState>>(new Map());
-  // Per-line eased opacity so brightness transitions smoothly between the
-  // active and inactive states instead of stepping with the gap.
-  const lineOpacityRef = useRef<Map<number, number>>(new Map());
-  // Track which line index is currently being pressed
+  // Track which line index the mouse is currently pressing
   const pressedLineRef = useRef<number | null>(null);
-  // Track pointer-down state for press animation
-  const downRef = useRef(false);
-
-  const pick = (clientY: number, rect: DOMRect) => {
-    const hitY = clientY - rect.top;
-    const focal = rect.height * 0.25;
-
-    for (let i = 0; i < lyricLines.length; i++) {
-      if (lyrics[i]?.isMetadata) continue;
-      const physics = linesState.current.get(i);
-      if (!physics) continue;
-      const y = physics.posY.current + focal;
-      const h = lyricLines[i].getCurrentHeight(visualTimeRef.current);
-      if (hitY >= y && hitY <= y + h) {
-        return i;
-      }
-    }
-
-    return null;
-  };
+  // Track mouseDown state for press animation
+  const isMouseDownRef = useRef(false);
 
   // Mouse Tracking
-  const markGesture = (x: number, y: number, gap: number) => {
-    if (gestureRef.current.moved) {
-      return;
-    }
-
-    if (
-      Math.abs(x - gestureRef.current.startX) > gap ||
-      Math.abs(y - gestureRef.current.startY) > gap
-    ) {
-      gestureRef.current.moved = true;
-    }
-  };
-
   const handleMouseMove = (e: React.MouseEvent) => {
     const rect = e.currentTarget.getBoundingClientRect();
     mouseRef.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
-    if (downRef.current) {
-      markGesture(e.clientX, e.clientY, 6);
-    }
     handlers.onTouchMove(e);
   };
 
   const handleMouseDown = (e: React.MouseEvent) => {
-    downRef.current = true;
-    gestureRef.current.startX = e.clientX;
-    gestureRef.current.startY = e.clientY;
-    gestureRef.current.moved = false;
-    gestureRef.current.suppress = false;
-    pressedLineRef.current = pick(e.clientY, e.currentTarget.getBoundingClientRect());
+    isMouseDownRef.current = true;
+    // Determine which line is being pressed for press animation
+    const rect = e.currentTarget.getBoundingClientRect();
+    const clickY = e.clientY - rect.top;
+    const height = rect.height;
+    const focalPointOffset = height * 0.35;
+    pressedLineRef.current = null;
+    for (let i = 0; i < lyricLines.length; i++) {
+      if (lyrics[i]?.isMetadata) continue;
+      const physics = linesState.current.get(i);
+      if (!physics) continue;
+      const visualY = physics.posY.current + focalPointOffset;
+      const h = lyricLines[i].getCurrentHeight(visualTimeRef.current);
+      if (clickY >= visualY && clickY <= visualY + h) {
+        pressedLineRef.current = i;
+        break;
+      }
+    }
     handlers.onTouchStart(e);
   };
 
   const handleMouseUp = () => {
-    if (gestureRef.current.moved) {
-      gestureRef.current.suppress = true;
-    }
-    downRef.current = false;
+    isMouseDownRef.current = false;
     pressedLineRef.current = null;
     handlers.onTouchEnd();
   };
@@ -333,35 +285,17 @@ const LyricsView: React.FC<LyricsViewProps> = ({
   const handleTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
     const first = e.touches[0];
     if (first) {
-      downRef.current = true;
-      gestureRef.current.startX = first.clientX;
-      gestureRef.current.startY = first.clientY;
-      gestureRef.current.moved = false;
-      gestureRef.current.suppress = false;
       touchIntentRef.current.id = first.identifier;
       touchIntentRef.current.startX = first.clientX;
       touchIntentRef.current.startY = first.clientY;
       touchIntentRef.current.lockDecided = false;
       touchIntentRef.current.lockedToLyrics = false;
-      pressedLineRef.current = pick(first.clientY, e.currentTarget.getBoundingClientRect());
-      handlers.onTouchStart(e);
-      return;
     }
-
-    downRef.current = false;
-    pressedLineRef.current = null;
     handlers.onTouchStart(e);
   };
 
   const handleTouchMove = (e: React.TouchEvent<HTMLDivElement>) => {
     const intent = updateTouchIntent(e);
-    const touch = e.touches[0];
-    if (touch) {
-      markGesture(touch.clientX, touch.clientY, 8);
-      if (gestureRef.current.moved) {
-        pressedLineRef.current = null;
-      }
-    }
     if (intent.lockedToLyrics) {
       e.stopPropagation();
     }
@@ -370,28 +304,18 @@ const LyricsView: React.FC<LyricsViewProps> = ({
 
   const handleTouchEnd = (e: React.TouchEvent<HTMLDivElement>) => {
     const intent = updateTouchIntent(e);
-    if (gestureRef.current.moved) {
-      gestureRef.current.suppress = true;
-    }
     if (intent.lockedToLyrics) {
       e.stopPropagation();
     }
-    downRef.current = false;
-    pressedLineRef.current = null;
     handlers.onTouchEnd();
     resetTouchIntent();
   };
 
   const handleTouchCancel = (e: React.TouchEvent<HTMLDivElement>) => {
     const intent = updateTouchIntent(e);
-    if (gestureRef.current.moved) {
-      gestureRef.current.suppress = true;
-    }
     if (intent.lockedToLyrics) {
       e.stopPropagation();
     }
-    downRef.current = false;
-    pressedLineRef.current = null;
     handlers.onTouchEnd();
     resetTouchIntent();
   };
@@ -455,19 +379,16 @@ const LyricsView: React.FC<LyricsViewProps> = ({
 
     if (!lyricLines.length) return;
 
-    const active = getActiveState(lyrics, visualTime, anchors);
+    const active = getActiveState(lyrics, visualTime);
     const activeSet = new Set(active.activeIndexes);
 
+    const stableLineHeights = lyricLines.map((line) => line.getTargetHeight(visualTime));
     const currentLineHeights = lyricLines.map((line) => line.getCurrentHeight(visualTime));
-    const layoutHeights = lyricLines.map((line) => line.getTargetHeight(visualTime));
 
-    updatePhysics(dt, layoutHeights, visualTime);
-
-    const anchor = anchorRef.current >= 0 ? anchorRef.current : active.anchorIndex;
-    const clear = modeRef.current !== "auto" || hoverRef.current;
+    updatePhysics(dt, stableLineHeights, visualTime);
 
     const paddingX = isMobile ? 24 : 56;
-    const focalPointOffset = height * 0.25;
+    const focalPointOffset = height * 0.35;
 
     const queue: Array<{
       index: number;
@@ -479,7 +400,6 @@ const LyricsView: React.FC<LyricsViewProps> = ({
       scale: number;
       pressScale: number;
       isActive: boolean;
-      drawActive: boolean;
       isHovering: boolean;
       hoverProgress: number;
       isPressed: boolean;
@@ -508,23 +428,15 @@ const LyricsView: React.FC<LyricsViewProps> = ({
         mouseRef.current.x <= width - paddingX + 20 &&
         mouseRef.current.y >= visualY &&
         mouseRef.current.y <= visualY + lineHeight;
-      const hover = pressedLineRef.current ?? mobileHoverIndex;
 
       const isActive = activeSet.has(index);
-      // Keep the line on its glow path until the emphasis has fully settled,
-      // even after the next line takes over — otherwise the glow pops off
-      // instead of easing back when lines land close together.
-      const drawActive =
-        isActive ||
-        (visualTime >= lyrics[index].time &&
-          visualTime < line.getEmphasisEnd());
       const scale = physics.scale.current;
       const isHovering = isMobile
-        ? hover === index
+        ? mobileHoverIndex === index
         : pointerHover;
 
       // Is this line currently being pressed?
-      const isPressed = downRef.current && pressedLineRef.current === index;
+      const isPressed = isMouseDownRef.current && pressedLineRef.current === index;
 
       // --- Per-line animation state (smooth hover / press / blur) ---
       let animState = lineAnimStatesRef.current.get(index);
@@ -534,19 +446,21 @@ const LyricsView: React.FC<LyricsViewProps> = ({
       }
 
       // Opacity & Blur — compute raw target values
-      const gap = anchor >= 0 ? Math.abs(index - anchor) : 0;
+      const lineCenter = visualY + lineHeight / 2;
+      const focusY = height * 0.35;
+      const dist = Math.abs(lineCenter - focusY);
 
       let targetOpacity = 1;
       let targetBlur = 0;
       const isBg = line.isBackgroundLine();
 
       if (!isActive) {
+        const normDist = Math.min(dist, 600) / 600;
         const floor = isMobile ? 0.4 : isBg ? 0.34 : 0.18;
-        const fade = isMobile ? 0.18 : isBg ? 0.18 : 0.22;
-        targetOpacity = Math.max(floor, 1 - gap * fade);
+        targetOpacity = floor + (1 - floor) * (1 - Math.pow(normDist, 0.62));
 
-        if (!clear && !isMobile && !isBg && gap > 0) {
-          targetBlur = Math.min(5, 1 + gap);
+        if (!isMobile && !isBg) {
+          targetBlur = 0.65 + Math.pow(normDist, 0.82) * 6.1;
         }
       }
 
@@ -558,19 +472,10 @@ const LyricsView: React.FC<LyricsViewProps> = ({
         targetBlur,
       );
 
-      // Ease the base opacity so the brightness glides between active and
-      // inactive instead of snapping when the line hands off.
-      const prevOpacity = lineOpacityRef.current.get(index);
-      const easedOpacity =
-        prevOpacity === undefined
-          ? targetOpacity
-          : prevOpacity + (targetOpacity - prevOpacity) * (1 - Math.exp(-dt / 0.16));
-      lineOpacityRef.current.set(index, easedOpacity);
-
       // Apply hover influence on opacity (interpolated smoothly)
-      let opacity = easedOpacity;
+      let opacity = targetOpacity;
       if (hoverProgress > 0) {
-        opacity = easedOpacity + (Math.max(0.8, easedOpacity) - easedOpacity) * hoverProgress;
+        opacity = targetOpacity + (Math.max(0.8, targetOpacity) - targetOpacity) * hoverProgress;
       }
 
       // Blur: use the smoothly interpolated value, reduced by hover progress
@@ -586,7 +491,6 @@ const LyricsView: React.FC<LyricsViewProps> = ({
         scale,
         pressScale,
         isActive,
-        drawActive,
         isHovering,
         hoverProgress,
         isPressed,
@@ -604,10 +508,10 @@ const LyricsView: React.FC<LyricsViewProps> = ({
         return a.index - b.index;
       })
       .forEach((item) => {
-        const useVisualTime = item.drawActive || item.line.isBackgroundLine();
+        const useVisualTime = item.isActive || item.line.isBackgroundLine();
         item.line.draw(
           useVisualTime ? visualTime : currentTime,
-          item.drawActive,
+          item.isActive,
           item.isHovering,
           item.hoverProgress,
         );
@@ -617,6 +521,7 @@ const LyricsView: React.FC<LyricsViewProps> = ({
         const cy = item.visualY + item.lineHeight / 2;
         const pivotX = item.line.getScalePivot();
         const effectiveScale = item.line.isInterlude() ? 1 : item.scale;
+
         ctx.translate(pivotX, cy);
         ctx.scale(effectiveScale, effectiveScale);
         ctx.translate(-pivotX, -item.lineHeight / 2);
@@ -626,6 +531,34 @@ const LyricsView: React.FC<LyricsViewProps> = ({
           ctx.translate(pressX, item.lineHeight / 2);
           ctx.scale(item.pressScale, item.pressScale);
           ctx.translate(-pressX, -item.lineHeight / 2);
+        }
+
+        // Apply Lyric Animation Settings
+        const focusY = height * 0.35;
+        const distFromCenter = item.visualY - focusY;
+
+        if (lyricAnimation === "3d") {
+          // Emulate a 3D cylindrical scroll by scaling Y and tweaking scale/opacity
+          const distNorm = Math.min(Math.abs(distFromCenter) / (height * 0.5), 1);
+          const perspectiveScale = 1 - (distNorm * 0.4);
+          const rotateZ = distFromCenter > 0 ? (distNorm * 0.1) : -(distNorm * 0.1);
+
+          ctx.translate(width / 2, item.lineHeight / 2);
+          ctx.scale(perspectiveScale, perspectiveScale);
+          // Note: Full 3D transform needs CSS3D or complex matrix.
+          // Using a subtle rotation/scaling gives a neat "falling away" feel without breaking crispness.
+          ctx.translate(-(width / 2), -item.lineHeight / 2);
+        } else if (lyricAnimation === "irregular") {
+          // Irregular entry effect: offset X and tilt based on distance from center
+          const distNorm = Math.abs(distFromCenter) / (height * 0.5);
+          if (!item.isActive && Math.abs(distFromCenter) > 20) {
+            const offsetX = Math.sin(item.index * 13.5) * (distNorm * 100);
+            const rot = Math.sin(item.index * 7.2) * (distNorm * 0.05);
+
+            ctx.translate(width / 2, item.lineHeight / 2);
+            ctx.rotate(rot);
+            ctx.translate(-(width / 2) + offsetX, -item.lineHeight / 2);
+          }
         }
 
         ctx.globalAlpha = item.opacity;
@@ -641,7 +574,8 @@ const LyricsView: React.FC<LyricsViewProps> = ({
         ctx.restore();
       });
 
-    // Draw Mask
+    // Draw Mask - Disabled per user request
+    /*
     ctx.globalCompositeOperation = "destination-in";
     const maskGradient = ctx.createLinearGradient(0, 0, 0, height);
     maskGradient.addColorStop(0, "rgba(0,0,0,0)");
@@ -652,20 +586,16 @@ const LyricsView: React.FC<LyricsViewProps> = ({
     ctx.fillRect(0, 0, width, height);
 
     ctx.globalCompositeOperation = "source-over";
+    */
   };
 
   const canvasRef = useCanvasRenderer({ onRender: render });
 
   const handleClick = (e: React.MouseEvent) => {
-    if (gestureRef.current.suppress) {
-      gestureRef.current.suppress = false;
-      return;
-    }
-
     const rect = e.currentTarget.getBoundingClientRect();
     const clickY = e.clientY - rect.top;
     const height = rect.height;
-    const focalPointOffset = height * 0.25;
+    const focalPointOffset = height * 0.35;
 
     let matched = false;
     for (let i = 0; i < lyricLines.length; i++) {
@@ -700,60 +630,63 @@ const LyricsView: React.FC<LyricsViewProps> = ({
     }
   };
 
+  if (!lyrics.length) {
+    return (
+      <div className="h-[88vh] lg:h-[80vh] flex flex-col items-center justify-center text-white/40 select-none">
+        {matchStatus === "matching" ? (
+          <div className="animate-pulse">Syncing Lyrics...</div>
+        ) : (
+          <>
+            <div className="text-4xl mb-4 opacity-50">♪</div>
+            <div>Play music to view lyrics</div>
+          </>
+        )}
+      </div>
+    );
+  }
+
   // Manual wheel event attachment to fix passive listener warning
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
 
     const onWheel = (e: WheelEvent) => {
-      handlersRef.current.onWheel(e as unknown as React.WheelEvent);
+      // We need to call the handler from useLyricsPhysics
+      // But handlers is recreated on render? No, it depends on refs mostly but returned new object
+      // We can use a ref to the latest handler or just disable the warning if we can't preventDefault?
+      // Actually, to prevent default, we MUST attach with passive: false.
+      handlers.onWheel(e as unknown as React.WheelEvent);
     };
 
-    el.addEventListener("wheel", onWheel, { passive: false });
+    el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);
-  }, []);
+  }, [handlers]); // handlers needs to be stable or we re-attach often. 
+  // If handlers changes every render, this effect runs every render.
+  // Let's check useLyricsPhysics. It returns a new object { ... } every render.
+  // This is suboptimal for useEffect deps.
+  // However, fixing the "unable to preventDefault" is the priority.
 
   return (
     <div
       ref={containerRef}
-      className="relative h-[88vh] lg:h-[80vh] w-full overflow-hidden cursor-grab active:cursor-grabbing touch-none select-none"
+      className="relative h-[85vh] lg:h-[75vh] w-full overflow-hidden cursor-grab active:cursor-grabbing touch-none select-none"
+      // onWheel removed here
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
       onTouchCancel={handleTouchCancel}
       onMouseDown={handleMouseDown}
-      onMouseEnter={(e) => {
-        const rect = e.currentTarget.getBoundingClientRect();
-        mouseRef.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
-        hoverRef.current = true;
-      }}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
       onMouseLeave={(e) => {
         mouseRef.current = { x: -1000, y: -1000 };
-        hoverRef.current = false;
-        if (gestureRef.current.moved) {
-          gestureRef.current.suppress = true;
-        }
-        downRef.current = false;
+        isMouseDownRef.current = false;
         pressedLineRef.current = null;
         handlers.onTouchEnd();
       }}
       onClick={handleClick}
     >
       <canvas ref={canvasRef} className="w-full h-full block" />
-      {!lyrics.length && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center text-white/40 select-none pointer-events-none">
-          {matchStatus === "matching" ? (
-            <div className="animate-pulse">{dict.lyrics.syncing}</div>
-          ) : (
-            <>
-              <div className="text-4xl mb-4 opacity-50">♪</div>
-              <div>{dict.lyrics.empty}</div>
-            </>
-          )}
-        </div>
-      )}
     </div>
   );
 };

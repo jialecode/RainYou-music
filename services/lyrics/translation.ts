@@ -8,10 +8,6 @@
 import { LyricLine, isMetadataLine } from "./types";
 import { parseLrc } from "./lrc";
 
-const cleanAux = (value: string): string => {
-  return value.trim().replace(/^\/+\s*/, "").trim();
-};
-
 /**
  * Normalize time to consistent precision for lookups.
  */
@@ -35,16 +31,13 @@ export const buildTranslationMap = (content?: string): Map<number, string> => {
       continue;
     }
 
-    const text = cleanAux(line.text);
-    if (!text) continue;
-
     const key = normalizeTime(line.time);
     const existing = map.get(key);
 
     if (existing) {
-      map.set(key, `${existing}\n${text}`);
+      map.set(key, `${existing}\n${line.text.trim()}`);
     } else {
-      map.set(key, text);
+      map.set(key, line.text.trim());
     }
   }
 
@@ -113,48 +106,27 @@ export const mergeTranslations = (
   lines: LyricLine[],
   translationContent?: string
 ): LyricLine[] => {
-  return mergeAux(lines, translationContent, "translation");
-};
+  if (!translationContent?.trim()) return lines;
 
-export const mergeRomanization = (
-  lines: LyricLine[],
-  romanContent?: string,
-): LyricLine[] => {
-  return mergeAux(lines, romanContent, "romanization");
-};
-
-const mergeAux = (
-  lines: LyricLine[],
-  content: string | undefined,
-  key: "translation" | "romanization",
-): LyricLine[] => {
-  if (!content?.trim()) return lines;
-
-  const map = buildTranslationMap(content);
+  const map = buildTranslationMap(translationContent);
   if (map.size === 0) return lines;
 
   return lines.map(line => {
     if (line.isInterlude || line.isMetadata || isMetadataLine(line.text)) return line;
 
-    const value = findTranslation(map, line);
-    if (!value) return line;
+    const translation = findTranslation(map, line);
 
-    const trimmed = cleanAux(value);
+    if (!translation) return line;
+
+    const trimmed = translation.trim();
     if (!trimmed) return line;
 
-    if (key === "translation") {
-      if (line.translation) return line;
-      return {
-        ...line,
-        translation: trimmed,
-      };
-    }
-
-    if (line.romanization) return line;
+    // Don't override existing translation
+    if (line.translation) return line;
 
     return {
       ...line,
-      romanization: trimmed,
+      translation: trimmed,
     };
   });
 };

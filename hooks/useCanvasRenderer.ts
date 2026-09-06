@@ -1,5 +1,4 @@
-import { useEffect, useLayoutEffect, useRef } from "react";
-import { usePageActive } from "./usePageActive";
+import { useEffect, useRef, useLayoutEffect } from "react";
 
 interface UseCanvasRendererProps {
     onRender: (
@@ -14,7 +13,6 @@ export const useCanvasRenderer = ({ onRender }: UseCanvasRendererProps) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const requestRef = useRef<number>(0);
     const previousTimeRef = useRef<number | undefined>(0);
-    const active = usePageActive();
 
     // Use a ref to store the latest callback to avoid restarting the animation loop
     const onRenderRef = useRef(onRender);
@@ -24,11 +22,6 @@ export const useCanvasRenderer = ({ onRender }: UseCanvasRendererProps) => {
     });
 
     useEffect(() => {
-        if (!active) {
-            previousTimeRef.current = undefined;
-            return;
-        }
-
         const canvas = canvasRef.current;
         if (!canvas) return;
 
@@ -79,14 +72,13 @@ export const useCanvasRenderer = ({ onRender }: UseCanvasRendererProps) => {
             requestRef.current = requestAnimationFrame(animate);
         };
 
-        previousTimeRef.current = undefined;
         requestRef.current = requestAnimationFrame(animate);
 
         return () => {
             window.removeEventListener("resize", handleResize);
             cancelAnimationFrame(requestRef.current);
         };
-    }, [active]);
+    }, []);
 
     return canvasRef;
 };

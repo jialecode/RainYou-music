@@ -77,9 +77,9 @@ export const CAMERA_SPRING: SpringConfig = {
 
 // Interlude Spring: Smooth expansion/collapse
 export const INTERLUDE_SPRING: SpringConfig = {
-  mass: 1.45,
-  stiffness: 40,
-  damping: 13,
+  mass: 1,
+  stiffness: 120,
+  damping: 20,
   precision: 0.001,
 };
 
@@ -125,15 +125,6 @@ export class SpringSystem {
 
   getVelocity(key: string): number {
     return this.velocity[key] || 0;
-  }
-
-  isSettled(key: string): boolean {
-    const p = this.config[key] || DEFAULT_SPRING;
-    const cur = this.current[key] ?? 0;
-    const tar = this.target[key] ?? cur;
-    const vel = this.velocity[key] ?? 0;
-    const pre = p.precision ?? 0.001;
-    return Math.abs(cur - tar) < pre && Math.abs(vel) < pre;
   }
 
   update(dt: number): boolean {

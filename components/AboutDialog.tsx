@@ -1,6 +1,5 @@
 import React from "react";
 import { createPortal } from "react-dom";
-import { useI18n } from "../hooks/useI18n";
 import { AuraLogo } from "./Icons";
 
 interface AboutDialogProps {
@@ -9,8 +8,6 @@ interface AboutDialogProps {
 }
 
 const AboutDialog: React.FC<AboutDialogProps> = ({ isOpen, onClose }) => {
-  const { dict } = useI18n();
-
   if (!isOpen) return null;
 
   return createPortal(
@@ -56,23 +53,23 @@ const AboutDialog: React.FC<AboutDialogProps> = ({ isOpen, onClose }) => {
             Aura Music
           </h3>
           <div className="inline-flex items-center px-2.5 py-0.5 rounded-full bg-white/5 border border-white/5 text-[11px] font-medium text-white/40 tracking-wide uppercase mb-6">
-            v1.9.0
+            v1.7.0 • Web
           </div>
 
           {/* Description */}
           <p className="text-white/70 text-[15px] leading-relaxed mb-8 font-medium">
-            {dict.about.descStart}
+            An experimental, pure web music player crafted with
             <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-400 font-bold mx-1">
-              {dict.about.descEmphasis}
+              Vibe Coding
             </span>
-            {dict.about.descEnd}
+            technology.
           </p>
 
           {/* Tech Stack Grid */}
           <div className="w-full grid grid-cols-3 gap-2 mb-8">
-            <TechBadge label="Gemini 3.5 Flash" />
-            <TechBadge label="GPT-5.5" />
-            <TechBadge label="Claude Opus 4.8" />
+            <TechBadge label="Gemini 3.1 Pro" />
+            <TechBadge label="GPT-5.4" />
+            <TechBadge label="Claude Opus 4.6" />
           </div>
 
           {/* Selection List */}
@@ -84,7 +81,7 @@ const AboutDialog: React.FC<AboutDialogProps> = ({ isOpen, onClose }) => {
               onClick={(e) => e.stopPropagation()}
               className="flex items-center justify-between px-4 py-3 rounded-2xl border border-white/15 bg-white/5 text-sm font-medium text-white/80 hover:bg-white/10 transition"
             >
-              <span>{dict.about.viewGitHub}</span>
+              <span>View on GitHub</span>
               <span className="text-[11px] text-white/50">↗</span>
             </a>
 
@@ -95,7 +92,7 @@ const AboutDialog: React.FC<AboutDialogProps> = ({ isOpen, onClose }) => {
               onClick={(e) => e.stopPropagation()}
               className="flex items-center justify-between px-4 py-3 rounded-2xl border border-white/15 bg-white/5 text-sm font-medium text-white/80 hover:bg-white/10 transition"
             >
-              <span>{dict.about.createdBy}</span>
+              <span>Created by dingyi222666</span>
               <span className="text-[11px] text-white/50">↗</span>
             </a>
           </div>
@@ -107,7 +104,7 @@ const AboutDialog: React.FC<AboutDialogProps> = ({ isOpen, onClose }) => {
             onClick={onClose}
             className="w-full py-3.5 rounded-2xl text-[16px] font-semibold text-white/90 hover:bg-white/10 active:scale-[0.98] transition-all duration-200"
           >
-            {dict.about.done}
+            Done
           </button>
         </div>
       </div>

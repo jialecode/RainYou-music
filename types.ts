@@ -26,12 +26,9 @@ export interface Song {
   title: string;
   artist: string;
   fileUrl: string;
-  source?: "local" | "remote";
-  origin?: string;
   coverUrl?: string;
   lyrics?: LyricLine[];
-  colors?: string[]; // Array of dominant/accent colors
-  themeColor?: string; // Stable dominant color for PWA/browser chrome
+  colors?: string[]; // Array of dominant colors
   needsLyricsMatch?: boolean; // Flag indicating song needs cloud lyrics matching
   // Netease specific fields
   isNetease?: boolean;

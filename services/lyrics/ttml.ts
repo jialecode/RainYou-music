@@ -312,44 +312,17 @@ const lineEndOf = (line: LyricLine): number => {
   return line.time;
 };
 
-const lineStartOf = (time: number, end: number, words: LyricWord[]): number => {
-  const first = words[0];
-  if (!first) return time;
-  if (first.startTime <= time) return time;
-  if (end > time && end >= first.startTime) return time;
-  return first.startTime;
-};
-
 const CJK_SCRIPT_REGEX =
   /\p{Script=Han}|\p{Script=Hiragana}|\p{Script=Katakana}|\p{Script=Hangul}/u;
-const PUNCT_REGEX = /^[^\p{L}\p{N}]+$/u;
-const AFFIX_LIMIT = 3;
-const WORD_LIMIT = 8;
 
 const hasCjkScript = (text: string): boolean => {
   return CJK_SCRIPT_REGEX.test(text);
 };
 
-const countOf = (text: string): number => {
-  return Array.from(text.trim()).length;
-};
-
 const canMergeWords = (prev: LyricWord, word: LyricWord): boolean => {
   if (/\s$/.test(prev.text) || /^\s/.test(word.text)) return false;
   if (hasCjkScript(prev.text) || hasCjkScript(word.text)) return false;
-
-  const left = prev.text.trim();
-  const right = word.text.trim();
-
-  if (!left || !right) return false;
-  if (/\s/.test(left) || /\s/.test(right)) return false;
-  if (PUNCT_REGEX.test(left) || PUNCT_REGEX.test(right)) return true;
-
-  const leftCount = countOf(left);
-  const rightCount = countOf(right);
-
-  if (leftCount + rightCount > WORD_LIMIT) return false;
-  return Math.min(leftCount, rightCount) <= AFFIX_LIMIT;
+  return true;
 };
 
 const mergeWords = (words: LyricWord[]): LyricWord[] => {
@@ -573,14 +546,13 @@ const parseP = (item: any, rootMode?: Mode, scope: Scope = {}): Entry[] => {
   }
 
   if (hasMain) {
-    const mainTime = lineStartOf(time, pEnd, mainWords);
     const line: LyricLine = {
       key,
-      time: mainTime,
+      time,
       text: text || mainWords.map((word) => word.text).join(""),
     };
 
-    if (pEnd > mainTime) line.endTime = pEnd;
+    if (pEnd > time) line.endTime = pEnd;
 
     if (mode === "word" && mainWords.length > 0) {
       line.words = mainWords;

@@ -1,173 +1,212 @@
-import React, { useRef, useState } from "react";
-import { useI18n } from "../hooks/useI18n";
-import { AuraLogo, SearchIcon, LocalMusicIcon, InfoIcon, FullscreenIcon } from "./Icons";
+import React, { useEffect, useRef, useState } from "react";
+import {
+  AuraLogo,
+  CloudDownloadIcon,
+  FullscreenIcon,
+  InfoIcon,
+  SearchIcon,
+} from "./Icons";
 import AboutDialog from "./AboutDialog";
 
 interface TopBarProps {
-  onFilesSelected: (files: FileList) => void;
+  view: "home" | "player";
+  onHomeClick: () => void;
+  onPlayerClick: () => void;
+  onImportClick: () => void;
   onSearchClick: () => void;
   disabled?: boolean;
+  playerDisabled?: boolean;
 }
 
 const TopBar: React.FC<TopBarProps> = ({
-  onFilesSelected,
+  view,
+  onHomeClick,
+  onPlayerClick,
+  onImportClick,
   onSearchClick,
   disabled,
+  playerDisabled,
 }) => {
-  const { dict } = useI18n();
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [isAboutOpen, setIsAboutOpen] = useState(false);
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const [isTopBarActive, setIsTopBarActive] = useState(false);
-  const hideTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [open, setOpen] = useState(false);
+  const [full, setFull] = useState(false);
+  const [active, setActive] = useState(false);
+  const hideRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const toggleFullscreen = () => {
     if (!document.fullscreenElement) {
-      document.documentElement.requestFullscreen().then(() => {
-        setIsFullscreen(true);
-      }).catch((err) => {
-        console.error(`Error attempting to enable fullscreen: ${err.message} (${err.name})`);
-      });
-    } else {
-      if (document.exitFullscreen) {
-        document.exitFullscreen().then(() => {
-          setIsFullscreen(false);
+      document.documentElement
+        .requestFullscreen()
+        .then(() => {
+          setFull(true);
+        })
+        .catch((err) => {
+          console.error(
+            `Error attempting to enable fullscreen: ${err.message} (${err.name})`,
+          );
         });
-      }
+      return;
     }
+
+    document.exitFullscreen?.().then(() => {
+      setFull(false);
+    });
   };
 
-  const activateTopBar = () => {
-    if (hideTimeoutRef.current) {
-      clearTimeout(hideTimeoutRef.current);
+  const wake = () => {
+    if (hideRef.current) {
+      clearTimeout(hideRef.current);
     }
-    setIsTopBarActive(true);
-    hideTimeoutRef.current = setTimeout(() => {
-      setIsTopBarActive(false);
-      hideTimeoutRef.current = null;
+
+    setActive(true);
+    hideRef.current = setTimeout(() => {
+      setActive(false);
+      hideRef.current = null;
     }, 2500);
   };
 
-  const handlePointerDownCapture = (event: React.PointerEvent<HTMLDivElement>) => {
+  const handlePointerDownCapture = (
+    event: React.PointerEvent<HTMLDivElement>,
+  ) => {
     if (event.pointerType !== "touch") {
       return;
     }
 
-    const wasActive = isTopBarActive;
-
-    if (!wasActive) {
+    if (!active) {
       event.preventDefault();
       event.stopPropagation();
     }
 
-    activateTopBar();
+    wake();
   };
 
-  React.useEffect(() => {
-    const handleFullscreenChange = () => {
-      setIsFullscreen(!!document.fullscreenElement);
+  useEffect(() => {
+    const sync = () => {
+      setFull(Boolean(document.fullscreenElement));
     };
 
-    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    document.addEventListener("fullscreenchange", sync);
     return () => {
-      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+      document.removeEventListener("fullscreenchange", sync);
     };
   }, []);
 
-  React.useEffect(() => {
+  useEffect(() => {
     return () => {
-      if (hideTimeoutRef.current) {
-        clearTimeout(hideTimeoutRef.current);
+      if (hideRef.current) {
+        clearTimeout(hideRef.current);
       }
     };
   }, []);
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (files && files.length > 0) {
-      onFilesSelected(files);
-    }
-    e.target.value = "";
-  };
-
-  const baseTransitionClasses = "transition-all duration-300 ease-out";
-  const childClasses = isTopBarActive
+  const base = "transition-all duration-500 ease-out";
+  const touch = active
     ? "opacity-100 translate-y-0 pointer-events-auto"
-    : "opacity-0 -translate-y-3 pointer-events-none group-hover:opacity-100 group-hover:translate-y-0 group-hover:pointer-events-auto";
-  const bgClasses = isTopBarActive
-    ? "opacity-100"
-    : "opacity-0 group-hover:opacity-100";
+    : "opacity-0 -translate-y-2 pointer-events-none";
+  const hover =
+    "group-hover:opacity-100 group-hover:translate-y-0 group-hover:pointer-events-auto";
+  const navBtn = (on: boolean) =>
+    `relative rounded-full px-3 py-2 text-sm font-medium transition ${
+      on
+        ? "bg-white text-black shadow-[0_10px_30px_rgba(255,255,255,0.18)]"
+        : "text-white/62 hover:text-white"
+    }`;
 
   return (
     <div
-      className="fixed top-0 left-0 w-full h-14 z-[60] group"
+      className="group fixed left-0 top-0 z-[60] h-16 w-full"
       onPointerDownCapture={handlePointerDownCapture}
     >
-      {/* Blur Background Layer */}
-      <div className={`absolute inset-0 bg-black/15 dark:bg-black/20 backdrop-blur-xl border-b border-white/5 ${baseTransitionClasses} ${bgClasses}`}></div>
+      <div
+        className={`absolute inset-0 border-b border-white/10 bg-white/5 backdrop-blur-2xl transition-all duration-500 ${
+          active ? "opacity-100" : "opacity-0"
+        } group-hover:opacity-100`}
+      />
 
-      {/* Content */}
-      <div className="relative z-10 w-full h-full px-6 flex justify-between items-center pointer-events-none">
-        {/* Logo / Title */}
-        <div className={`flex items-center gap-3 ${baseTransitionClasses} ${childClasses}`}>
-          <div className="w-9 h-9 rounded-[10px] overflow-hidden shadow-[0_4px_12px_rgba(0,0,0,0.15)] border border-white/10 flex-shrink-0">
-            <AuraLogo className="w-full h-full" />
+      <div className="relative z-10 flex h-full items-center justify-between gap-3 px-4 sm:px-6">
+        <div
+          className={`flex min-w-0 items-center gap-3 ${base} ${touch} ${hover}`}
+        >
+          <button
+            type="button"
+            onClick={onHomeClick}
+            className="overflow-hidden rounded-[12px] shadow-lg shadow-rose-500/20"
+            title="Home"
+          >
+            <AuraLogo className="h-10 w-10" />
+          </button>
+          <div className="hidden min-w-0 sm:block">
+            <h1 className="truncate text-sm font-bold uppercase tracking-[0.28em] text-white/85">
+              Aura Music
+            </h1>
+            <p className="truncate text-xs text-white/40">
+              Discover and player in one view
+            </p>
           </div>
-          <span className="text-white/90 font-semibold tracking-tight text-[15px] hidden sm:block">
-            {dict.app.name}
-          </span>
         </div>
 
-        {/* Actions */}
-        <div className={`flex gap-2 ${baseTransitionClasses} ${childClasses}`}>
-          {/* Search Button */}
+        <div className={`${base} ${touch} ${hover}`}>
+          <div className="flex items-center gap-1 rounded-full border border-white/10 bg-black/20 p-1 backdrop-blur-2xl">
+            <button
+              type="button"
+              onClick={onHomeClick}
+              className={navBtn(view === "home")}
+            >
+              首页
+            </button>
+            <button
+              type="button"
+              onClick={onPlayerClick}
+              disabled={playerDisabled}
+              className={`${navBtn(view === "player")} disabled:cursor-not-allowed disabled:text-white/25`}
+            >
+              播放器
+            </button>
+          </div>
+        </div>
+
+        <div
+          className={`flex items-center gap-2 ${base} delay-75 ${touch} ${hover}`}
+        >
           <button
+            type="button"
             onClick={onSearchClick}
-            className="w-9 h-9 rounded-full bg-white/5 hover:bg-white/10 active:bg-white/15 active:scale-95 text-white/75 hover:text-white transition-all duration-200 flex items-center justify-center shadow-[0_1px_2px_rgba(0,0,0,0.05)] pointer-events-auto"
-            title={dict.top.search}
+            className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/10 text-white/80 shadow-sm transition-all hover:bg-white/20 hover:text-white"
+            title="Search (Cmd+K)"
           >
-            <SearchIcon className="w-[18px] h-[18px]" />
+            <SearchIcon className="h-5 w-5" />
           </button>
 
-          {/* Import Button */}
           <button
-            onClick={() => fileInputRef.current?.click()}
+            type="button"
+            onClick={onImportClick}
             disabled={disabled}
-            className="w-9 h-9 rounded-full bg-white/5 hover:bg-white/10 active:bg-white/15 active:scale-95 text-white/75 hover:text-white transition-all duration-200 flex items-center justify-center shadow-[0_1px_2px_rgba(0,0,0,0.05)] disabled:opacity-40 disabled:scale-100 disabled:cursor-not-allowed pointer-events-auto"
-            title={dict.top.importLocal}
+            className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/10 text-white/80 shadow-sm transition-all hover:bg-white/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+            title="Import Local Files"
           >
-            <LocalMusicIcon className="w-[18px] h-[18px]" />
+            <CloudDownloadIcon className="h-5 w-5" />
           </button>
 
-          {/* About Button */}
           <button
-            onClick={() => setIsAboutOpen(true)}
-            className="w-9 h-9 rounded-full bg-white/5 hover:bg-white/10 active:bg-white/15 active:scale-95 text-white/75 hover:text-white transition-all duration-200 flex items-center justify-center shadow-[0_1px_2px_rgba(0,0,0,0.05)] pointer-events-auto"
-            title={dict.top.about}
+            type="button"
+            onClick={() => setOpen(true)}
+            className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/10 text-white/80 shadow-sm transition-all hover:bg-white/20 hover:text-white"
+            title="About Aura Music"
           >
-            <InfoIcon className="w-[18px] h-[18px]" />
+            <InfoIcon className="h-5 w-5" />
           </button>
 
-          {/* Fullscreen Button */}
           <button
+            type="button"
             onClick={toggleFullscreen}
-            className="w-9 h-9 rounded-full bg-white/5 hover:bg-white/10 active:bg-white/15 active:scale-95 text-white/75 hover:text-white transition-all duration-200 flex items-center justify-center shadow-[0_1px_2px_rgba(0,0,0,0.05)] pointer-events-auto"
-            title={isFullscreen ? dict.top.exitFullscreen : dict.top.enterFullscreen}
+            className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/10 text-white/80 shadow-sm transition-all hover:bg-white/20 hover:text-white"
+            title={full ? "Exit Fullscreen" : "Enter Fullscreen"}
           >
-            <FullscreenIcon className="w-[18px] h-[18px]" isFullscreen={isFullscreen} />
+            <FullscreenIcon className="h-5 w-5" isFullscreen={full} />
           </button>
-
-          <input
-            type="file"
-            ref={fileInputRef}
-            onChange={handleFileChange}
-            accept="audio/*,.lrc,.txt,.json"
-            multiple
-            className="hidden"
-          />
         </div>
       </div>
-      <AboutDialog isOpen={isAboutOpen} onClose={() => setIsAboutOpen(false)} />
+
+      <AboutDialog isOpen={open} onClose={() => setOpen(false)} />
     </div>
   );
 };

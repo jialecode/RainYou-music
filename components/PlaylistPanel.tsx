@@ -1,20 +1,13 @@
 
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { useTransition, animated } from "@react-spring/web";
-import { Song } from "../types";
-import {
-  CheckIcon,
-  GripIcon,
-  PlusIcon,
-  QueueIcon,
-  TrashIcon,
-  SelectAllIcon,
-} from "./Icons";
-import { useI18n } from "../hooks/useI18n";
-import { useKeyboardScope } from "../hooks/useKeyboardScope";
-import ImportMusicDialog from "./ImportMusicDialog";
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { useTransition, animated } from '@react-spring/web';
+import { Song } from '../types';
+import { CheckIcon, PlusIcon, QueueIcon, TrashIcon, SelectAllIcon } from './Icons';
+import { useKeyboardScope } from '../hooks/useKeyboardScope';
+import ImportMusicDialog from './ImportMusicDialog';
+import SmartImage from './SmartImage';
 
-const PANEL_STYLES = `
+const IOS_SCROLLBAR_STYLES = `
   .playlist-scrollbar {
     scrollbar-width: thin;
     scrollbar-color: rgba(255, 255, 255, 0.65) rgba(255, 255, 255, 0.02);
@@ -38,15 +31,7 @@ const PANEL_STYLES = `
   .playlist-scrollbar::-webkit-scrollbar-thumb:hover {
     background: linear-gradient(180deg, rgba(255, 255, 255, 0.85), rgba(255, 255, 255, 0.72));
   }
-  @keyframes eq-bounce {
-    0%, 100% { transform: scaleY(0.4); opacity: 0.8; }
-    50% { transform: scaleY(1); opacity: 1; }
-  }
 `;
-
-const ITEM_HEIGHT = 74;
-const CARD_HEIGHT = 66;
-const OVERSCAN = 5;
 
 interface PlaylistPanelProps {
     isOpen: boolean;
@@ -55,131 +40,33 @@ interface PlaylistPanelProps {
     currentSongId?: string;
     onPlay: (index: number) => void;
     onImport: (url: string) => Promise<boolean>;
-    onReorder: (ids: string[]) => void;
     onRemove: (ids: string[]) => void;
     accentColor: string;
 }
 
-interface PressState {
-  id: string;
-  song: Song;
-  index: number;
-  x: number;
-  y: number;
-  ptr: number;
-  timer: number;
-  done: () => void;
-}
-
-interface DragState {
-    id: string;
-    song: Song;
-    index: number;
-    to: number;
-    x: number;
-    y: number;
-    w: number;
-    h: number;
-    lift: number;
-    ptr: number;
-}
-
-interface RowState {
-    song: Song;
-    index: number;
-    view: number;
-}
-
-interface ArtProps {
-  src?: string;
-  alt: string;
-  dim?: boolean;
-  eager?: boolean;
-}
-
-const HOLD_MS = 220;
-const HOLD_SLOP = 10;
-
-const Art = React.memo(({ src, alt, dim = false, eager = false }: ArtProps) => {
-  if (!src) {
-    return (
-      <div className="relative h-11 w-11 flex-shrink-0 overflow-hidden rounded-lg border border-white/5 bg-gray-800 shadow-sm">
-        <div className="flex h-full w-full items-center justify-center bg-gray-700 text-[10px] text-white/20">♪</div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="relative h-11 w-11 flex-shrink-0 overflow-hidden rounded-lg border border-white/5 bg-gray-800 shadow-sm">
-      <img
-        src={src}
-        alt={alt}
-        loading={eager ? "eager" : "lazy"}
-        decoding="async"
-        draggable={false}
-        className={`block h-full w-full object-cover transition-opacity duration-300 ${dim ? "opacity-40 blur-[1px]" : ""}`.trim()}
-      />
-    </div>
-  );
-});
-
-Art.displayName = "Art";
-
-const sourceAt = (view: number, drag: DragState | null) => {
-  if (!drag) {
-    return view;
-  }
-
-  if (view === drag.to) {
-    return drag.index;
-  }
-
-  if (drag.index < drag.to && view >= drag.index && view < drag.to) {
-    return view + 1;
-  }
-
-  if (drag.index > drag.to && view > drag.to && view <= drag.index) {
-    return view - 1;
-  }
-
-  return view;
-};
-
-const move = (list: string[], from: number, to: number) => {
-    const next = [...list];
-    const [id] = next.splice(from, 1);
-    if (!id) {
-        return list;
-    }
-    next.splice(to, 0, id);
-    return next;
-};
-
-const PlaylistPanel = React.memo(({
+const PlaylistPanel: React.FC<PlaylistPanelProps> = ({
     isOpen,
     onClose,
     queue,
     currentSongId,
     onPlay,
     onImport,
-    onReorder,
     onRemove,
     accentColor
-}: PlaylistPanelProps) => {
-    const { dict } = useI18n();
+}) => {
     const [isAdding, setIsAdding] = useState(false);
+    const [visible, setVisible] = useState(false);
+
     const [isEditing, setIsEditing] = useState(false);
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-    const [drag, setDrag] = useState<DragState | null>(null);
 
     const panelRef = useRef<HTMLDivElement>(null);
     const listRef = useRef<HTMLDivElement>(null);
-    const ghostRef = useRef<HTMLDivElement>(null);
-    const pressRef = useRef<PressState | null>(null);
-    const dragRef = useRef<DragState | null>(null);
-    const skipRef = useRef(false);
     const [scrollTop, setScrollTop] = useState(0);
-    const [listHeight, setListHeight] = useState(0);
+
+    // Virtualization Constants
+    const ITEM_HEIGHT = 74; // Approx height of each item (including margin)
+    const OVERSCAN = 5;
 
     // ESC key support using keyboard scope
     useKeyboardScope(
@@ -215,10 +102,7 @@ const PlaylistPanel = React.memo(({
             const index = queue.findIndex(s => s.id === currentSongId);
             if (index !== -1) {
                 const containerHeight = listRef.current.clientHeight;
-                const targetScroll = Math.max(
-                    0,
-                    (index * ITEM_HEIGHT) - (containerHeight / 2) + (ITEM_HEIGHT / 2),
-                );
+                const targetScroll = (index * ITEM_HEIGHT) - (containerHeight / 2) + (ITEM_HEIGHT / 2);
                 listRef.current.scrollTop = targetScroll;
                 setScrollTop(targetScroll);
             } else {
@@ -277,362 +161,39 @@ const PlaylistPanel = React.memo(({
         }
     };
 
-    const cancelPress = useCallback(() => {
-        const state = pressRef.current;
-        if (!state) {
-            return;
-        }
-
-        state.done();
-        pressRef.current = null;
-    }, []);
-
-    const clearDrag = useCallback(() => {
-        dragRef.current = null;
-        setDrag(null);
-        ghostRef.current?.style.removeProperty("--ghost-y");
-        document.body.style.userSelect = "";
-    }, []);
-
-    useEffect(() => {
-        if (!isOpen || isEditing || queue.length < 2) {
-            cancelPress();
-            clearDrag();
-        }
-    }, [cancelPress, clearDrag, isEditing, isOpen, queue.length]);
-
-    useEffect(() => {
-        return () => {
-            cancelPress();
-            clearDrag();
-        };
-    }, [cancelPress, clearDrag]);
-
-    const getIndex = useCallback((y: number, lift: number, h: number) => {
-        const list = listRef.current;
-        if (!list || queue.length === 0) {
-            return 0;
-        }
-
-        const rect = list.getBoundingClientRect();
-        const raw = y - rect.top + list.scrollTop - lift + (h / 2);
-        return Math.max(
-            0,
-            Math.min(queue.length - 1, Math.floor(raw / ITEM_HEIGHT)),
-        );
-    }, [queue.length]);
-
-    const syncGhost = useCallback((state: DragState | null) => {
-        if (!state || !ghostRef.current) {
-            return;
-        }
-
-        ghostRef.current.style.setProperty("--ghost-y", `${state.y - state.lift}px`);
-    }, []);
-
-    useLayoutEffect(() => {
-        syncGhost(drag);
-    }, [drag, syncGhost]);
-
-    useLayoutEffect(() => {
-        const list = listRef.current;
-        if (!list) {
-            return;
-        }
-
-        const sync = () => {
-            setListHeight(list.clientHeight);
-        };
-
-        sync();
-
-        if (typeof ResizeObserver === "undefined") {
-            return;
-        }
-
-        const observer = new ResizeObserver(() => {
-            sync();
-        });
-
-        observer.observe(list);
-        return () => {
-            observer.disconnect();
-        };
-    }, [isOpen]);
-
-    const beginDrag = useCallback((state: PressState, row: HTMLDivElement) => {
-        const rect = row.getBoundingClientRect();
-        const item: DragState = {
-            id: state.id,
-            song: state.song,
-            index: state.index,
-            to: state.index,
-            x: rect.left,
-            y: state.y,
-            w: rect.width,
-            h: rect.height,
-            lift: state.y - rect.top,
-            ptr: state.ptr,
-        };
-
-        skipRef.current = true;
-        document.body.style.userSelect = "none";
-        dragRef.current = { ...item };
-        setDrag(item);
-    }, []);
-
-    const handlePress = (
-        e: React.PointerEvent<HTMLElement>,
-        song: Song,
-        index: number,
-        instant = false,
-    ) => {
-        if (isEditing || queue.length < 2 || !listRef.current || pressRef.current || dragRef.current) {
-            return;
-        }
-        if (e.pointerType === "mouse" && e.button !== 0) {
-            return;
-        }
-        if (e.pointerType === "mouse" && !instant) {
-            return;
-        }
-
-        const row = e.currentTarget instanceof HTMLDivElement
-            ? e.currentTarget
-            : e.currentTarget.closest("[data-song-row]");
-        if (!(row instanceof HTMLDivElement)) {
-            return;
-        }
-
-        const block = (event: TouchEvent) => {
-            event.preventDefault();
-        };
-
-        const onMove = (event: PointerEvent) => {
-            if (event.pointerId !== state.ptr) {
-                return;
-            }
-
-            const item = dragRef.current;
-            if (!item) {
-                if (Math.hypot(event.clientX - state.x, event.clientY - state.y) > HOLD_SLOP) {
-                    cancelPress();
-                }
-                return;
-            }
-
-            if (event.cancelable) {
-                event.preventDefault();
-            }
-
-            const next = {
-                ...item,
-                y: event.clientY,
-                to: getIndex(event.clientY, item.lift, item.h),
-            };
-            dragRef.current = next;
-            syncGhost(next);
-            setDrag((prev) => {
-                if (!prev || event.pointerId !== prev.ptr || prev.to === next.to) {
-                    return prev;
-                }
-                return {
-                    ...prev,
-                    y: next.y,
-                    to: next.to,
-                };
-            });
-        };
-
-        const onEnd = (event: PointerEvent) => {
-            if (event.pointerId !== state.ptr) {
-                return;
-            }
-
-            const item = dragRef.current;
-            cancelPress();
-            if (!item) {
-                return;
-            }
-
-            clearDrag();
-            window.setTimeout(() => {
-                skipRef.current = false;
-            }, 0);
-
-            if (item.to === item.index) {
-                return;
-            }
-
-            onReorder(move(queue.map((song) => song.id), item.index, item.to));
-        };
-
-        const state: PressState = {
-            id: song.id,
-            song,
-            index,
-            x: e.clientX,
-            y: e.clientY,
-            ptr: e.pointerId,
-            timer: 0,
-            done: () => {
-                window.clearTimeout(state.timer);
-                window.removeEventListener("pointermove", onMove);
-                window.removeEventListener("pointerup", onEnd);
-                window.removeEventListener("pointercancel", onEnd);
-                window.removeEventListener("touchmove", block);
-            },
-        };
-
-        const start = () => {
-            if (pressRef.current !== state) {
-                return;
-            }
-
-            window.addEventListener("touchmove", block, { passive: false });
-            beginDrag(state, row);
-        };
-
-        state.timer = instant ? 0 : window.setTimeout(start, HOLD_MS);
-
-        pressRef.current = state;
-        window.addEventListener("pointermove", onMove);
-        window.addEventListener("pointerup", onEnd);
-        window.addEventListener("pointercancel", onEnd);
-        if (instant) {
-            start();
-        }
-    };
-
     // Virtual List Logic
     const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
         setScrollTop(e.currentTarget.scrollTop);
     };
 
-    const { virtualItems, totalHeight } = useMemo(() => {
+    const { virtualItems, totalHeight, startOffset } = useMemo(() => {
         const totalHeight = queue.length * ITEM_HEIGHT;
-        if (queue.length === 0) {
-            return {
-                virtualItems: [],
-                totalHeight,
-            };
-        }
-
-        const height = listHeight || 600;
+        const containerHeight = 600; // Approx max height
 
         let startIndex = Math.floor(scrollTop / ITEM_HEIGHT);
-        let endIndex = Math.ceil((scrollTop + height) / ITEM_HEIGHT);
+        let endIndex = Math.ceil((scrollTop + containerHeight) / ITEM_HEIGHT);
 
         startIndex = Math.max(0, startIndex - OVERSCAN);
         endIndex = Math.min(queue.length, endIndex + OVERSCAN);
 
-        const virtualItems: RowState[] = [];
-        for (let view = startIndex; view < endIndex; view += 1) {
-            const index = drag ? sourceAt(view, drag) : view;
-            const song = queue[index];
-            if (!song) {
-                continue;
-            }
-            virtualItems.push({ song, index, view });
+        const virtualItems = [];
+        for (let i = startIndex; i < endIndex; i++) {
+            virtualItems.push({
+                ...queue[i],
+                index: i
+            });
         }
 
         return {
             virtualItems,
             totalHeight,
+            startOffset: startIndex * ITEM_HEIGHT
         };
-    }, [drag, listHeight, queue, scrollTop]);
-
-    useEffect(() => {
-        if (!drag) {
-            return;
-        }
-
-        let frame = 0;
-        const tick = () => {
-            const list = listRef.current;
-            const state = dragRef.current;
-            if (!list || !state) {
-                return;
-            }
-
-            const rect = list.getBoundingClientRect();
-            const edge = 64;
-            let delta = 0;
-
-            if (state.y < rect.top + edge) {
-                delta = -Math.ceil(((rect.top + edge) - state.y) / 8);
-            } else if (state.y > rect.bottom - edge) {
-                delta = Math.ceil((state.y - (rect.bottom - edge)) / 8);
-            }
-
-            if (delta !== 0) {
-                const top = Math.max(
-                    0,
-                    Math.min(list.scrollHeight - list.clientHeight, list.scrollTop + delta),
-                );
-
-                if (top !== list.scrollTop) {
-                    list.scrollTop = top;
-                    setScrollTop(top);
-                    const next = {
-                        ...state,
-                        to: getIndex(state.y, state.lift, state.h),
-                    };
-                    dragRef.current = next;
-                    setDrag((prev) => {
-                        if (!prev || prev.to === next.to) {
-                            return prev;
-                        }
-                        return {
-                            ...prev,
-                            y: next.y,
-                            to: next.to,
-                        };
-                    });
-                }
-            }
-
-            frame = window.requestAnimationFrame(tick);
-        };
-
-        frame = window.requestAnimationFrame(tick);
-        return () => window.cancelAnimationFrame(frame);
-    }, [drag?.id, getIndex]);
+    }, [queue, scrollTop]);
 
     return (
         <>
-            <style>{PANEL_STYLES}</style>
-            {drag && (
-                <div
-                    ref={ghostRef}
-                    className="pointer-events-none fixed z-[80]"
-                    style={{
-                        top: 0,
-                        left: drag.x,
-                        transform: "translate3d(0, var(--ghost-y, 0px), 0)",
-                        width: drag.w,
-                    }}
-                >
-                    <div className="flex h-[66px] scale-[1.02] items-center gap-3 rounded-2xl border border-white/10 bg-black/45 px-2 shadow-[0_24px_50px_rgba(0,0,0,0.35)] backdrop-blur-[28px]">
-                        <Art src={drag.song.coverUrl} alt={drag.song.title} eager />
-                        <div className="flex-1 min-w-0 flex flex-col justify-center gap-0.5">
-                            <div
-                                className="text-[15px] font-semibold truncate leading-tight"
-                                style={{
-                                    color: drag.song.id === currentSongId
-                                        ? accentColor
-                                        : "rgba(255,255,255,0.92)",
-                                }}
-                            >
-                                {drag.song.title}
-                            </div>
-                            <div className="text-[13px] text-white/50 truncate font-medium">
-                                {drag.song.artist}
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
+            <style>{IOS_SCROLLBAR_STYLES}</style>
             {transitions((style, item) => item && (
                 <animated.div
                     ref={panelRef}
@@ -652,10 +213,8 @@ const PlaylistPanel = React.memo(({
                     {/* iOS 18 Style Header */}
                     <div className="px-5 pt-5 pb-3 shrink-0 flex items-center justify-between bg-transparent border-b border-white/5">
                         <div className="flex flex-col">
-                            <h3 className="text-white text-lg font-bold leading-none tracking-tight">{dict.list.playingNext}</h3>
-                            <span className="text-white/40 text-xs font-medium mt-1">
-                                {dict.list.songs(queue.length)}
-                            </span>
+                            <h3 className="text-white text-lg font-bold leading-none tracking-tight">Playing Next</h3>
+                            <span className="text-white/40 text-xs font-medium mt-1">{queue.length} Songs</span>
                         </div>
 
                         <div className="flex items-center gap-2">
@@ -664,14 +223,14 @@ const PlaylistPanel = React.memo(({
                                     <button
                                         onClick={handleSelectAll}
                                         className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${selectedIds.size === queue.length && queue.length > 0 ? 'text-white bg-white/10' : 'text-white/50 hover:text-white hover:bg-white/10'}`}
-                                        title={dict.list.selectAll}
+                                        title="Select All"
                                     >
                                         <SelectAllIcon className="w-5 h-5" />
                                     </button>
                                     <button
                                         onClick={handleDelete}
                                         className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${selectedIds.size > 0 ? 'text-red-400 hover:bg-red-500/10' : 'text-white/20 cursor-not-allowed'}`}
-                                        title={dict.list.deleteSelected}
+                                        title="Delete Selected"
                                         disabled={selectedIds.size === 0}
                                     >
                                         <TrashIcon className="w-5 h-5" />
@@ -680,7 +239,7 @@ const PlaylistPanel = React.memo(({
                                         onClick={() => setIsEditing(false)}
                                         className="w-8 h-8 rounded-full flex items-center justify-center transition-all hover:bg-white/10"
                                         style={{ color: accentColor }}
-                                        title={dict.list.done}
+                                        title="Done"
                                     >
                                         <CheckIcon className="w-5 h-5" />
                                     </button>
@@ -690,14 +249,14 @@ const PlaylistPanel = React.memo(({
                                     <button
                                         onClick={() => setIsAdding(true)}
                                         className="w-8 h-8 rounded-full flex items-center justify-center transition-all text-white/50 hover:text-white hover:bg-white/10"
-                                        title={dict.list.addFromUrl}
+                                        title="Add from URL"
                                     >
                                         <PlusIcon className="w-5 h-5" />
                                     </button>
                                     <button
                                         onClick={() => setIsEditing(true)}
                                         className="w-8 h-8 rounded-full flex items-center justify-center transition-all text-white/50 hover:text-white hover:bg-white/10"
-                                        title={dict.list.edit}
+                                        title="Edit List"
                                     >
                                         <QueueIcon className="w-5 h-5" />
                                     </button>
@@ -714,47 +273,31 @@ const PlaylistPanel = React.memo(({
                     >
                         {queue.length === 0 ? (
                             <div className="flex flex-col items-center justify-center h-32 text-white/30 space-y-2">
-                                <p className="text-xs font-medium">{dict.list.empty}</p>
+                                <p className="text-xs font-medium">Queue is empty</p>
                             </div>
                         ) : (
                             <div style={{ height: `${totalHeight}px`, position: 'relative' }}>
-                                {virtualItems.map((item) => {
-                                    const song = item.song;
-                                    const index = item.index;
-                                    const view = item.view;
+                                {virtualItems.map((song) => {
+                                    const index = song.index;
                                     const isCurrent = song.id === currentSongId;
                                     const isSelected = selectedIds.has(song.id);
-                                    const isDrag = drag?.id === song.id;
 
                                     return (
                                         <div
-                                            key={song.id}
-                                            data-song-row={song.id}
-                                             onPointerDown={(e) => handlePress(e, song, index)}
-                                            onContextMenu={(e) => {
-                                                if (!isEditing) {
-                                                    e.preventDefault();
-                                                }
-                                            }}
+                                            key={`${song.id}-${index}`}
                                             onClick={() => {
-                                                if (skipRef.current) {
-                                                    return;
-                                                }
                                                 if (isEditing) toggleSelection(song.id);
                                                 else onPlay(index);
                                             }}
                                             className={`
-                                     absolute left-0 right-0 h-[66px]
-                                     group flex items-center gap-3 p-2 mx-2 rounded-2xl cursor-pointer transition-all duration-200
-                                     ${isEditing ? 'hover:bg-white/10' : isCurrent ? 'bg-white/10 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.05)]' : 'hover:bg-white/5'}
-                                     ${isDrag ? 'opacity-0 scale-[0.98]' : ''}
-                                 `}
+                                    absolute left-0 right-0 h-[66px]
+                                    group flex items-center gap-3 p-2 mx-2 rounded-2xl cursor-pointer transition-all duration-200
+                                    ${isEditing ? 'hover:bg-white/10' : isCurrent ? 'bg-white/10 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.05)]' : 'hover:bg-white/5'}
+                                `}
                                             style={{
-                                                top: `${view * ITEM_HEIGHT}px`,
-                                                height: `${CARD_HEIGHT}px`,
-                                                touchAction: isEditing ? 'auto' : 'pan-y',
-                                                transition: 'top 180ms ease, opacity 180ms ease, transform 180ms ease',
-                                                willChange: 'top, opacity, transform',
+                                                top: `${index * ITEM_HEIGHT}px`,
+                                                // Adjust height within the slot if needed, ITEM_HEIGHT includes gap
+                                                height: '66px'
                                             }}
                                         >
                                             {/* Edit Mode Checkbox */}
@@ -772,12 +315,17 @@ const PlaylistPanel = React.memo(({
                                             )}
 
                                             {/* Cover & Indicator */}
-                                            <div className="relative">
-                                                <Art
-                                                    src={song.coverUrl}
-                                                    alt={song.title}
-                                                    dim={isCurrent && !isEditing}
-                                                />
+                                            <div className="relative w-11 h-11 rounded-lg overflow-hidden flex-shrink-0 bg-gray-800 border border-white/5 shadow-sm">
+                                                {song.coverUrl ? (
+                                                    <SmartImage
+                                                        src={song.coverUrl}
+                                                        alt={song.title}
+                                                        containerClassName="w-full h-full"
+                                                        imgClassName={`w-full h-full object-cover transition-opacity duration-300 ${isCurrent && !isEditing ? 'opacity-40 blur-[1px]' : ''}`}
+                                                    />
+                                                ) : (
+                                                    <div className="w-full h-full flex items-center justify-center bg-gray-700 text-white/20 text-[10px]">♪</div>
+                                                )}
 
                                                 {/* Redesigned Now Playing Indicator (Equalizer) */}
                                                 {isCurrent && !isEditing && (
@@ -785,47 +333,29 @@ const PlaylistPanel = React.memo(({
                                                         <div className="w-[3px] bg-current rounded-full animate-[eq-bounce_1s_ease-in-out_infinite]" style={{ height: '12px', color: accentColor }}></div>
                                                         <div className="w-[3px] bg-current rounded-full animate-[eq-bounce_1s_ease-in-out_infinite_0.2s]" style={{ height: '20px', color: accentColor }}></div>
                                                         <div className="w-[3px] bg-current rounded-full animate-[eq-bounce_1s_ease-in-out_infinite_0.4s]" style={{ height: '15px', color: accentColor }}></div>
+                                                        <style>{`
+                                                @keyframes eq-bounce {
+                                                    0%, 100% { transform: scaleY(0.4); opacity: 0.8; }
+                                                    50% { transform: scaleY(1.0); opacity: 1; }
+                                                }
+                                            `}</style>
                                                     </div>
                                                 )}
                                             </div>
 
                                             {/* Text */}
-                                             <div className="flex-1 min-w-0 flex flex-col justify-center gap-0.5">
-                                                 <div className={`text-[15px] font-semibold truncate leading-tight transition-colors duration-300`}
-                                                     style={{ color: isCurrent ? accentColor : 'rgba(255,255,255,0.9)' }}>
-                                                     {song.title}
-                                                 </div>
-                                                 <div className="text-[13px] text-white/50 truncate font-medium">
-                                                     {song.artist}
-                                                 </div>
-                                             </div>
-
-                                              {!isEditing && (
-                                                  <button
-                                                      type="button"
-                                                      title={dict.list.drag}
-                                                      aria-label={dict.list.reorder(song.title)}
-                                                      onPointerDown={(e) => {
-                                                          e.preventDefault();
-                                                          e.stopPropagation();
-                                                         handlePress(e, song, index, true);
-                                                     }}
-                                                     onClick={(e) => {
-                                                         e.preventDefault();
-                                                         e.stopPropagation();
-                                                     }}
-                                                     className={`
-                                                         relative flex h-8 shrink-0 items-center justify-center overflow-hidden rounded-xl text-white/35 transition-all duration-200
-                                                         ${isDrag ? 'w-8 opacity-100' : 'w-0 opacity-0 pointer-events-none group-hover:w-8 group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:w-8 group-focus-within:opacity-100 group-focus-within:pointer-events-auto hover:bg-white/10 hover:text-white/80'}
-                                                     `}
-                                                     style={{ cursor: isDrag ? 'grabbing' : 'grab' }}
-                                                 >
-                                                     <GripIcon className="w-4 h-4" />
-                                                 </button>
-                                             )}
-                                         </div>
-                                     );
-                                 })}
+                                            <div className="flex-1 min-w-0 flex flex-col justify-center gap-0.5">
+                                                <div className={`text-[15px] font-semibold truncate leading-tight transition-colors duration-300`}
+                                                    style={{ color: isCurrent ? accentColor : 'rgba(255,255,255,0.9)' }}>
+                                                    {song.title}
+                                                </div>
+                                                <div className="text-[13px] text-white/50 truncate font-medium">
+                                                    {song.artist}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
                             </div>
                         )}
                     </div>
@@ -841,8 +371,6 @@ const PlaylistPanel = React.memo(({
             />
         </>
     );
-});
-
-PlaylistPanel.displayName = "PlaylistPanel";
+};
 
 export default PlaylistPanel;
