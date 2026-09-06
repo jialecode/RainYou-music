@@ -53,6 +53,108 @@ const getPlacements = (count: number): CardPlacement[] => {
   return placements;
 };
 
+const DeckCardProgressBar: React.FC<{
+  currentTime?: number;
+  duration?: number;
+  onSeek?: (time: number, immediate?: boolean) => void;
+  accentColor?: string;
+}> = ({ currentTime = 0, duration = 0, onSeek, accentColor }) => {
+  const [isHovering, setIsHovering] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragPercent, setDragPercent] = useState<number | null>(null);
+  const trackRef = useRef<HTMLDivElement>(null);
+
+  const effectiveDuration = duration > 0 ? duration : 0;
+  const currentPercent =
+    effectiveDuration > 0
+      ? Math.min(100, Math.max(0, (currentTime / effectiveDuration) * 100))
+      : 0;
+  const displayPercent = dragPercent !== null ? dragPercent : currentPercent;
+
+  const calculatePercent = (clientX: number) => {
+    if (!trackRef.current) return 0;
+    const rect = trackRef.current.getBoundingClientRect();
+    const x = clientX - rect.left;
+    return Math.max(0, Math.min(1, x / rect.width));
+  };
+
+  const handlePointerDown = (e: React.PointerEvent) => {
+    e.stopPropagation();
+    if (effectiveDuration <= 0 || !onSeek) return;
+    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+    setIsDragging(true);
+    const p = calculatePercent(e.clientX);
+    setDragPercent(p * 100);
+    onSeek(p * effectiveDuration, false);
+  };
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+    if (isDragging && effectiveDuration > 0 && onSeek) {
+      const p = calculatePercent(e.clientX);
+      setDragPercent(p * 100);
+      onSeek(p * effectiveDuration, false);
+    }
+  };
+
+  const handlePointerUp = (e: React.PointerEvent) => {
+    if (isDragging && effectiveDuration > 0 && onSeek) {
+      const p = calculatePercent(e.clientX);
+      setDragPercent(null);
+      setIsDragging(false);
+      onSeek(p * effectiveDuration, true);
+    } else {
+      setIsDragging(false);
+      setDragPercent(null);
+    }
+  };
+
+  const displayTime =
+    isDragging && dragPercent !== null
+      ? (dragPercent / 100) * effectiveDuration
+      : currentTime;
+
+  return (
+    <div className="px-1 mb-3.5 select-none">
+      <div
+        ref={trackRef}
+        onPointerEnter={() => setIsHovering(true)}
+        onPointerLeave={() => setIsHovering(false)}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
+        className="relative w-full h-3 flex items-center cursor-pointer group/progress touch-none"
+        title="拖动或点击调整进度"
+      >
+        {/* Track */}
+        <div className="relative w-full h-[3px] group-hover/progress:h-[5px] bg-white/15 rounded-full transition-all duration-200 overflow-visible">
+          {/* Active progress fill */}
+          <div
+            className="h-full rounded-full transition-[width] duration-75 ease-out shadow-[0_0_10px_rgba(52,211,153,0.4)]"
+            style={{
+              width: `${displayPercent}%`,
+              backgroundColor: accentColor ? `rgb(${accentColor})` : "#34d399",
+            }}
+          />
+
+          {/* Luminous Glowing Thumb */}
+          <div
+            className={`absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-white shadow-[0_0_10px_rgba(255,255,255,0.95),0_2px_4px_rgba(0,0,0,0.5)] pointer-events-none transition-all duration-150 ${
+              isHovering || isDragging ? "opacity-100 scale-100" : "opacity-0 scale-75"
+            }`}
+            style={{ left: `calc(${displayPercent}% - 6px)` }}
+          />
+        </div>
+      </div>
+
+      <div className="flex justify-between text-[11px] text-white/50 -mt-1 font-mono">
+        <span>{formatTime(displayTime)}</span>
+        <span>{formatTime(effectiveDuration)}</span>
+      </div>
+    </div>
+  );
+};
+
 const DeckLayout: React.FC<DeckLayoutProps> = ({
   songs,
   currentSong,
@@ -312,7 +414,7 @@ const DeckLayout: React.FC<DeckLayoutProps> = ({
                   {/* Play action hover badge */}
                   {isFocused && (
                     <div 
-                      className="absolute inset-0 m-auto w-16 h-16 rounded-full bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-sm z-30"
+                      className="absolute inset-0 m-auto w-16 h-16 rounded-full bg-black/60 hover:bg-black/80 hover:scale-110 active:scale-90 transition-all duration-200 ease-[cubic-bezier(0.34,1.56,0.64,1)] opacity-0 group-hover:opacity-100 flex items-center justify-center backdrop-blur-md z-30 shadow-[0_4px_24px_rgba(0,0,0,0.5)] border border-white/20 cursor-pointer"
                       onClick={(e) => {
                         e.stopPropagation();
                         if (isCurrent) {
@@ -322,17 +424,24 @@ const DeckLayout: React.FC<DeckLayoutProps> = ({
                         }
                       }}
                     >
-                      {isThisPlaying ? (
-                        <PauseIcon className="w-8 h-8 text-white" />
-                      ) : (
-                        <PlayIcon className="w-8 h-8 text-white ml-1" />
-                      )}
+                      <div className="relative w-8 h-8 flex items-center justify-center pointer-events-none">
+                        <PauseIcon
+                          className={`absolute inset-0 w-8 h-8 text-white transition-all duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${
+                            isThisPlaying ? "opacity-100 scale-100 rotate-0" : "opacity-0 scale-50 -rotate-90"
+                          }`}
+                        />
+                        <PlayIcon
+                          className={`absolute inset-0 w-8 h-8 text-white ml-1 transition-all duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${
+                            !isThisPlaying ? "opacity-100 scale-100 rotate-0" : "opacity-0 scale-50 rotate-90"
+                          }`}
+                        />
+                      </div>
                     </div>
                   )}
                 </div>
 
                 {/* Song title & artist */}
-                <div className="text-left mb-3.5 px-1 min-w-0">
+                <div className="text-left mb-3 px-1 min-w-0">
                   <h4 
                     className={`text-[15px] font-black truncate mb-0.5 leading-tight cursor-pointer ${
                       isCurrent ? "text-emerald-400" : "text-white"
@@ -355,35 +464,13 @@ const DeckLayout: React.FC<DeckLayoutProps> = ({
                 </div>
 
                 {/* Progress Bar for currently playing song */}
-                {isCurrent && duration !== undefined && duration > 0 && currentTime !== undefined && (
-                  <div className="px-1 mb-3.5 select-none">
-                    <div 
-                      className="relative w-full h-1 bg-white/10 rounded-full cursor-pointer group/progress"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        const rect = e.currentTarget.getBoundingClientRect();
-                        const clickX = e.clientX - rect.left;
-                        const newTime = (clickX / rect.width) * duration;
-                        onSeek?.(newTime, true);
-                      }}
-                    >
-                      <div 
-                        className="absolute top-1/2 -translate-y-1/2 left-0 h-1 rounded-full bg-emerald-400 group-hover/progress:h-1.5 transition-all"
-                        style={{ 
-                          width: `${(currentTime / duration) * 100}%`,
-                          backgroundColor: accentColor ? `rgb(${accentColor})` : undefined 
-                        }}
-                      />
-                      <div 
-                        className="absolute top-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-white opacity-0 group-hover/progress:opacity-100 transition-opacity"
-                        style={{ left: `calc(${(currentTime / duration) * 100}% - 4px)` }}
-                      />
-                    </div>
-                    <div className="flex justify-between text-[10px] text-white/40 mt-1 font-medium">
-                      <span>{formatTime(currentTime)}</span>
-                      <span>{formatTime(duration)}</span>
-                    </div>
-                  </div>
+                {isCurrent && (
+                  <DeckCardProgressBar
+                    currentTime={currentTime}
+                    duration={duration}
+                    onSeek={onSeek}
+                    accentColor={accentColor}
+                  />
                 )}
 
                 {/* Playback Controls */}
@@ -393,12 +480,12 @@ const DeckLayout: React.FC<DeckLayoutProps> = ({
                       e.stopPropagation();
                       if (isCurrent) onPrev();
                     }}
-                    className={`p-1.5 rounded-full hover:bg-white/10 transition-colors ${
-                      isCurrent ? "opacity-100 active:scale-90" : "opacity-35 cursor-default"
+                    className={`p-2 rounded-full hover:bg-white/15 active:scale-80 active:-translate-x-1 hover:text-white transition-all duration-200 ease-out group/prev ${
+                      isCurrent ? "opacity-100 cursor-pointer" : "opacity-35 cursor-default"
                     }`}
                     title="上一首"
                   >
-                    <PrevIcon className="w-4 h-4" />
+                    <PrevIcon className="w-4 h-4 transition-transform duration-200 group-hover/prev:scale-110 group-active/prev:scale-95" />
                   </button>
 
                   <button 
@@ -411,14 +498,21 @@ const DeckLayout: React.FC<DeckLayoutProps> = ({
                         setFocusedIdx(index);
                       }
                     }}
-                    className="p-3 rounded-full bg-white text-black hover:scale-105 active:scale-95 shadow-md flex items-center justify-center transition-transform"
+                    className="relative p-3 rounded-full bg-white text-black hover:scale-110 active:scale-90 shadow-[0_4px_16px_rgba(0,0,0,0.3)] hover:shadow-[0_0_24px_rgba(255,255,255,0.45)] flex items-center justify-center transition-all duration-200 ease-[cubic-bezier(0.34,1.56,0.64,1)] group/playbtn"
                     title={isThisPlaying ? "暂停" : "播放"}
                   >
-                    {isThisPlaying ? (
-                      <PauseIcon className="w-4 h-4 text-black" />
-                    ) : (
-                      <PlayIcon className="w-4 h-4 text-black ml-0.5" />
-                    )}
+                    <div className="relative w-4 h-4 flex items-center justify-center pointer-events-none">
+                      <PauseIcon
+                        className={`absolute inset-0 w-4 h-4 text-black transition-all duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${
+                          isThisPlaying ? "opacity-100 scale-100 rotate-0" : "opacity-0 scale-50 -rotate-90"
+                        }`}
+                      />
+                      <PlayIcon
+                        className={`absolute inset-0 w-4 h-4 text-black ml-0.5 transition-all duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${
+                          !isThisPlaying ? "opacity-100 scale-100 rotate-0" : "opacity-0 scale-50 rotate-90"
+                        }`}
+                      />
+                    </div>
                   </button>
 
                   <button 
@@ -426,22 +520,22 @@ const DeckLayout: React.FC<DeckLayoutProps> = ({
                       e.stopPropagation();
                       if (isCurrent) onNext();
                     }}
-                    className={`p-1.5 rounded-full hover:bg-white/10 transition-colors ${
-                      isCurrent ? "opacity-100 active:scale-90" : "opacity-35 cursor-default"
+                    className={`p-2 rounded-full hover:bg-white/15 active:scale-80 active:translate-x-1 hover:text-white transition-all duration-200 ease-out group/next ${
+                      isCurrent ? "opacity-100 cursor-pointer" : "opacity-35 cursor-default"
                     }`}
                     title="下一首"
                   >
-                    <NextIcon className="w-4 h-4" />
+                    <NextIcon className="w-4 h-4 transition-transform duration-200 group-hover/next:scale-110 group-active/next:scale-95" />
                   </button>
 
                   <button 
                     onClick={(e) => {
                       e.stopPropagation();
                     }}
-                    className="p-1.5 rounded-full hover:bg-white/10 opacity-70 active:scale-90 transition-colors"
+                    className="p-2 rounded-full hover:bg-white/15 active:scale-85 hover:scale-110 transition-all duration-200 text-white/70 hover:text-white"
                     title="喜欢"
                   >
-                    <LikeIcon className="w-4 h-4 text-rose-500/90" filled={isCurrent} />
+                    <LikeIcon className="w-4 h-4 text-rose-500/90 transition-transform active:scale-125" filled={isCurrent} />
                   </button>
                 </div>
               </div>

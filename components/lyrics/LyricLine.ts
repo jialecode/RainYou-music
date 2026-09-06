@@ -397,6 +397,8 @@ const getFonts = (isMobile: boolean, scale: number = 1) => {
   };
 };
 
+const getPaddingX = (isMobile: boolean) => (isMobile ? 20 : 36);
+
 export class LyricLine implements ILyricLine {
   private canvas: OffscreenCanvas | HTMLCanvasElement;
   private ctx: OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D;
@@ -1023,9 +1025,9 @@ export class LyricLine implements ILyricLine {
 
     const baseSize = (this.isMobile ? 32 : 40) * fontScale;
     const paddingY = this.isMobile ? 18 : 24;
-    const paddingX = this.isMobile ? 24 : 56;
-    // Duet lines get reduced max width (~65% of container)
-    const duetRatio = this.lyricLine.isDuet ? (this.isMobile ? 0.88 : 0.78) : 1;
+    const paddingX = getPaddingX(this.isMobile);
+    // Duet lines get reduced max width (~85% of container)
+    const duetRatio = this.lyricLine.isDuet ? (this.isMobile ? 0.88 : 0.84) : 1;
     const maxWidth = (containerWidth - paddingX * 2) * duetRatio;
 
     // Reset context font for measurement
@@ -1158,7 +1160,7 @@ export class LyricLine implements ILyricLine {
       fontScale,
     );
 
-    const paddingX = this.isMobile ? 24 : 56;
+    const paddingX = getPaddingX(this.isMobile);
     const hasTimedWords = this.layout.words.some((w) => w.isVerbatim);
 
     const stateChanged =
@@ -1225,12 +1227,12 @@ export class LyricLine implements ILyricLine {
   }
 
   public getScalePivot() {
-    const paddingX = this.isMobile ? 24 : 56;
+    const paddingX = getPaddingX(this.isMobile);
     return pivotOf(this.lyricLine.align, this.logicalWidth, paddingX);
   }
 
   public getPressPivot() {
-    const paddingX = this.isMobile ? 24 : 56;
+    const paddingX = getPaddingX(this.isMobile);
     return centerOf(
       this.lyricLine.align,
       this.logicalWidth,

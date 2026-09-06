@@ -632,7 +632,7 @@ const LyricsView: React.FC<LyricsViewProps> = ({
 
   if (!lyrics.length) {
     return (
-      <div className="h-[88vh] lg:h-[80vh] flex flex-col items-center justify-center text-white/40 select-none">
+      <div className="h-full min-h-[70vh] flex flex-col items-center justify-center text-white/40 select-none">
         {matchStatus === "matching" ? (
           <div className="animate-pulse">Syncing Lyrics...</div>
         ) : (
@@ -669,7 +669,7 @@ const LyricsView: React.FC<LyricsViewProps> = ({
   return (
     <div
       ref={containerRef}
-      className="relative h-[85vh] lg:h-[75vh] w-full overflow-hidden cursor-grab active:cursor-grabbing touch-none select-none"
+      className="relative h-full min-h-[75vh] max-h-[92vh] w-full overflow-hidden cursor-grab active:cursor-grabbing touch-none select-none"
       // onWheel removed here
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}

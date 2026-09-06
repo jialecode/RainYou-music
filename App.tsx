@@ -400,7 +400,7 @@ const App: React.FC = () => {
     : "no-song";
 
   const lyricsSection = (
-    <div className="relative z-20 flex h-full w-full flex-col justify-center px-4 lg:pl-12">
+    <div className="relative z-20 flex h-full w-full flex-col justify-center px-4 lg:pl-6 lg:pr-8 xl:pl-10 xl:pr-12">
       {/* Lyric Mode Switcher Button */}
       <div className="absolute top-20 right-6 z-30 flex items-center">
         <button
@@ -565,6 +565,7 @@ const App: React.FC = () => {
             onNext={playNext}
             onPrev={playPrev}
             currentTime={currentTime}
+            duration={duration}
             onSeek={handleSeek}
             audioRef={audioRef}
             accentColor={accentColor}
@@ -625,7 +626,7 @@ const App: React.FC = () => {
           </div>
         </div>
       ) : (
-        <div className="relative grid h-full w-full flex-1 lg:grid-cols-2 overflow-hidden">
+        <div className="relative grid h-full w-full flex-1 lg:grid-cols-[minmax(360px,38%)_1fr] xl:grid-cols-[minmax(400px,35%)_1fr] overflow-hidden">
           {/* Centered Circular Visualizer Overlay */}
           {visualizerStyle === "circular" && (
             <div className="absolute inset-0 z-0 pointer-events-none flex items-center justify-center mix-blend-screen opacity-75">

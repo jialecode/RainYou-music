@@ -1,5 +1,6 @@
 import React, { useRef, useEffect } from "react";
 import SmartImage from "./SmartImage";
+import { useSettings, CoverStyle } from "../hooks/useSettings";
 
 interface CoverProps {
   src?: string;
@@ -7,6 +8,7 @@ interface CoverProps {
   className?: string;
   onClick?: (e: React.MouseEvent) => void;
   size?: "sm" | "md" | "lg";
+  style?: CoverStyle;
 }
 
 const Cover: React.FC<CoverProps> = ({
@@ -14,13 +16,17 @@ const Cover: React.FC<CoverProps> = ({
   isPlaying,
   className = "",
   onClick,
+  style,
 }) => {
+  const settings = useSettings();
+  const effectiveStyle = style ?? settings.coverStyle;
   const containerRef = useRef<HTMLDivElement>(null);
   const angleRef = useRef<number>(0);
   const animFrameRef = useRef<number | null>(null);
   const lastTimeRef = useRef<number | null>(null);
 
   useEffect(() => {
+    if (effectiveStyle !== "vinyl") return;
     const el = containerRef.current;
     if (!el) return;
 
@@ -65,7 +71,34 @@ const Cover: React.FC<CoverProps> = ({
         cancelAnimationFrame(animFrameRef.current);
       }
     };
-  }, [isPlaying]);
+  }, [isPlaying, effectiveStyle]);
+
+  if (effectiveStyle === "rounded") {
+    return (
+      <div
+        className={`relative aspect-square w-full h-full rounded-[24px] sm:rounded-[32px] overflow-hidden flex items-center justify-center select-none shadow-[0_20px_50px_rgba(0,0,0,0.5),0_0_24px_rgba(255,255,255,0.06)] border border-white/10 bg-zinc-950 transition-all duration-500 group/rounded-cover ${className}`}
+        onClick={onClick}
+      >
+        {src ? (
+          <SmartImage
+            src={src}
+            containerClassName="w-full h-full"
+            imgClassName={`w-full h-full object-cover transition-transform duration-700 ease-out ${
+              isPlaying ? "scale-[1.03]" : "scale-100"
+            }`}
+          />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center text-white/30 bg-zinc-900">
+            <span className="text-4xl font-light select-none">♪</span>
+          </div>
+        )}
+
+        {/* Apple Music style inner specular highlight / glass sheen overlay */}
+        <div className="absolute inset-0 bg-gradient-to-tr from-white/[0.08] via-transparent to-white/[0.04] pointer-events-none" />
+        <div className="absolute inset-0 ring-1 ring-inset ring-white/10 rounded-[inherit] pointer-events-none" />
+      </div>
+    );
+  }
 
   return (
     <div

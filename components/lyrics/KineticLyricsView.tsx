@@ -224,7 +224,7 @@ const KineticLyricsView: React.FC<KineticLyricsViewProps> = ({
       {renderBackgroundGraphics()}
 
       {/* Main Lyric Stack */}
-      <div className="relative z-10 w-full max-w-[850px] px-6 flex flex-col items-center justify-center text-center gap-6 sm:gap-9">
+      <div className="relative z-10 w-full max-w-[1050px] px-6 flex flex-col items-center justify-center text-center gap-6 sm:gap-9">
         
         {/* 1. Previous Line (Ambient/Fading) */}
         {!isHomepageMode && prevLine && (

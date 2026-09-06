@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from "react";
 
 export type LyricAnimationMode = "default" | "3d" | "irregular";
 export type VisualizerStyle = "default" | "circular" | "wave";
+export type CoverStyle = "vinyl" | "rounded";
 
 interface SettingsContextType {
     lyricAnimation: LyricAnimationMode;
@@ -10,6 +11,8 @@ interface SettingsContextType {
     setVisualizerStyle: (style: VisualizerStyle) => void;
     amplitudeAnimation: boolean;
     setAmplitudeAnimation: (enabled: boolean) => void;
+    coverStyle: CoverStyle;
+    setCoverStyle: (style: CoverStyle) => void;
 }
 
 const SettingsContext = createContext<SettingsContextType | undefined>(undefined);
@@ -18,6 +21,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const [lyricAnimation, setLyricAnimationState] = useState<LyricAnimationMode>("default");
     const [visualizerStyle, setVisualizerStyleState] = useState<VisualizerStyle>("default");
     const [amplitudeAnimation, setAmplitudeAnimationState] = useState<boolean>(false);
+    const [coverStyle, setCoverStyleState] = useState<CoverStyle>("vinyl");
 
     useEffect(() => {
         const savedLyric = localStorage.getItem("lyricAnimation");
@@ -33,6 +37,11 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         const savedAmp = localStorage.getItem("amplitudeAnimation");
         if (savedAmp !== null) {
             setAmplitudeAnimationState(savedAmp === "true");
+        }
+
+        const savedCover = localStorage.getItem("coverStyle");
+        if (savedCover === "vinyl" || savedCover === "rounded") {
+            setCoverStyleState(savedCover as CoverStyle);
         }
     }, []);
 
@@ -51,11 +60,17 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         localStorage.setItem("amplitudeAnimation", String(enabled));
     };
 
+    const setCoverStyle = (style: CoverStyle) => {
+        setCoverStyleState(style);
+        localStorage.setItem("coverStyle", style);
+    };
+
     return (
         <SettingsContext.Provider value={{
             lyricAnimation, setLyricAnimation,
             visualizerStyle, setVisualizerStyle,
-            amplitudeAnimation, setAmplitudeAnimation
+            amplitudeAnimation, setAmplitudeAnimation,
+            coverStyle, setCoverStyle
         }}>
             {children}
         </SettingsContext.Provider>

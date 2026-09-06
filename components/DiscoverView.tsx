@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   AuraLogo,
   CloudDownloadIcon,
@@ -15,6 +15,7 @@ import SmartImage from "./SmartImage";
 import DeckLayout from "./DeckLayout";
 import KineticLyricsView from "./lyrics/KineticLyricsView";
 import Cover from "./Cover";
+import { formatTime } from "../services/utils";
 import type {
   DiscoverChart,
   DiscoverData,
@@ -213,6 +214,111 @@ const SongRow: React.FC<{
           <PlusIcon className="w-5 h-5 text-white" />
         </button>
       </div>
+    </div>
+  );
+};
+
+const PlaybarProgressBar: React.FC<{
+  currentTime?: number;
+  duration?: number;
+  onSeek?: (time: number, immediate?: boolean) => void;
+  accentColor?: string;
+}> = ({ currentTime = 0, duration = 0, onSeek, accentColor }) => {
+  const [isHovering, setIsHovering] = useState(false);
+  const [hoverPercent, setHoverPercent] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragPercent, setDragPercent] = useState<number | null>(null);
+  const barRef = useRef<HTMLDivElement>(null);
+
+  const effectiveDuration = duration > 0 ? duration : 0;
+  const currentPercent =
+    effectiveDuration > 0
+      ? Math.min(100, Math.max(0, (currentTime / effectiveDuration) * 100))
+      : 0;
+
+  const displayPercent = dragPercent !== null ? dragPercent : currentPercent;
+
+  const calculatePercent = (clientX: number) => {
+    if (!barRef.current) return 0;
+    const rect = barRef.current.getBoundingClientRect();
+    const x = clientX - rect.left;
+    return Math.max(0, Math.min(1, x / rect.width));
+  };
+
+  const handlePointerDown = (e: React.PointerEvent) => {
+    e.stopPropagation();
+    if (effectiveDuration <= 0 || !onSeek) return;
+    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+    setIsDragging(true);
+    const p = calculatePercent(e.clientX);
+    setDragPercent(p * 100);
+    onSeek(p * effectiveDuration, false);
+  };
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+    const p = calculatePercent(e.clientX);
+    setHoverPercent(p);
+    if (isDragging && effectiveDuration > 0 && onSeek) {
+      setDragPercent(p * 100);
+      onSeek(p * effectiveDuration, false);
+    }
+  };
+
+  const handlePointerUp = (e: React.PointerEvent) => {
+    if (isDragging && effectiveDuration > 0 && onSeek) {
+      const p = calculatePercent(e.clientX);
+      setDragPercent(null);
+      setIsDragging(false);
+      onSeek(p * effectiveDuration, true);
+    } else {
+      setIsDragging(false);
+      setDragPercent(null);
+    }
+  };
+
+  const hoverTime = hoverPercent * effectiveDuration;
+
+  return (
+    <div
+      ref={barRef}
+      onPointerEnter={() => setIsHovering(true)}
+      onPointerLeave={() => setIsHovering(false)}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerUp}
+      className="absolute -top-1.5 left-0 right-0 h-4.5 flex items-center cursor-pointer group/prog z-30 select-none touch-none px-3"
+      title="拖动或点击调整播放进度"
+    >
+      {/* Track Background */}
+      <div className="relative w-full h-[3.5px] group-hover/prog:h-[6px] bg-white/20 dark:bg-white/15 rounded-full transition-all duration-200 overflow-visible">
+        {/* Fill Progress Bar */}
+        <div
+          className="absolute left-0 top-0 bottom-0 rounded-full transition-[width] duration-75 ease-out shadow-[0_0_8px_rgba(255,255,255,0.4)]"
+          style={{
+            width: `${displayPercent}%`,
+            backgroundColor: accentColor ? `rgb(${accentColor})` : "#34d399",
+          }}
+        />
+
+        {/* Apple luminous glowing thumb handle */}
+        <div
+          className={`absolute top-1/2 -translate-y-1/2 w-3.5 h-3.5 rounded-full bg-white shadow-[0_0_12px_rgba(255,255,255,0.9),0_2px_5px_rgba(0,0,0,0.5)] transition-all duration-150 pointer-events-none ${
+            isHovering || isDragging ? "opacity-100 scale-100" : "opacity-0 scale-75"
+          }`}
+          style={{ left: `calc(${displayPercent}% - 7px)` }}
+        />
+      </div>
+
+      {/* Floating Scrub Time Tooltip */}
+      {(isHovering || isDragging) && effectiveDuration > 0 && (
+        <div
+          className="absolute -top-7 -translate-x-1/2 bg-black/85 backdrop-blur-xl border border-white/20 text-white text-[10px] font-bold px-2 py-0.5 rounded-md shadow-2xl pointer-events-none whitespace-nowrap animate-in fade-in zoom-in-90 duration-150"
+          style={{ left: `${hoverPercent * 100}%` }}
+        >
+          {formatTime(hoverTime)} / {formatTime(effectiveDuration)}
+        </div>
+      )}
     </div>
   );
 };
@@ -516,29 +622,13 @@ const DiscoverView: React.FC<DiscoverViewProps> = ({
               borderColor: accentColor ? `rgba(${accentColor}, 0.2)` : undefined
             }}
           >
-            {/* Sleek Mini Progress Bar */}
-            {duration > 0 && (
-              <div 
-                className="absolute top-0 left-0 right-0 h-[3px] bg-white/10 rounded-t-2xl overflow-hidden cursor-pointer transition-all hover:h-[5px] pointer-events-auto z-30"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (!onSeek) return;
-                  const rect = e.currentTarget.getBoundingClientRect();
-                  const clickX = e.clientX - rect.left;
-                  const newTime = (clickX / rect.width) * duration;
-                  onSeek(newTime, true);
-                }}
-                title="调整进度"
-              >
-                <div 
-                  className="h-full transition-all duration-100"
-                  style={{ 
-                    width: `${(currentTime / duration) * 100}%`,
-                    backgroundColor: accentColor ? `rgb(${accentColor})` : "#10b981" 
-                  }}
-                />
-              </div>
-            )}
+            {/* Apple-style Interactive Mini Progress Bar */}
+            <PlaybarProgressBar
+              currentTime={currentTime}
+              duration={duration}
+              onSeek={onSeek}
+              accentColor={accentColor}
+            />
 
             {/* Soft inner glow overlay */}
             <div className="absolute inset-0 bg-gradient-to-tr from-white/[0.03] to-transparent rounded-2xl pointer-events-none" />
@@ -546,67 +636,83 @@ const DiscoverView: React.FC<DiscoverViewProps> = ({
             {/* Song Cover & Metadata (clickable to open full player screen) */}
             <div 
               onClick={onOpenPlayer}
-              className="flex items-center gap-3 min-w-0 cursor-pointer flex-1"
+              className="flex items-center gap-3 min-w-0 cursor-pointer flex-1 group/meta"
             >
-              <div className="relative w-12 h-12 rounded-[10px] overflow-hidden bg-white/5 flex-shrink-0 shadow-md">
+              <div className="relative w-12 h-12 rounded-[10px] overflow-hidden bg-white/5 flex-shrink-0 shadow-md transition-transform duration-300 group-hover/meta:scale-105">
                 <Cover src={currentSong.coverUrl} isPlaying={isPlaying} />
               </div>
               
               <div className="min-w-0 flex-1 flex flex-col justify-center">
-                <h4 className="text-[14px] font-black text-white truncate leading-snug tracking-wide group-hover:text-emerald-400 transition-colors">
+                <h4 className="text-[14px] font-black text-white truncate leading-snug tracking-wide group-hover/meta:text-emerald-400 transition-colors">
                   {currentSong.title}
                 </h4>
-                <p className="text-[11px] font-bold text-white/50 truncate mt-0.5">
-                  {currentSong.artist}
-                </p>
+                <div className="flex items-center gap-1.5 mt-0.5 min-w-0">
+                  <p className="text-[11px] font-bold text-white/50 truncate">
+                    {currentSong.artist}
+                  </p>
+                  {duration > 0 && (
+                    <span className="text-[10px] text-white/35 font-mono tracking-wider flex-shrink-0">
+                      • {formatTime(currentTime)} / {formatTime(duration)}
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
 
             {/* Playback Actions bar */}
-            <div className="flex items-center gap-1.5 flex-shrink-0 text-white/95">
+            <div className="flex items-center gap-1 flex-shrink-0 text-white/95">
               
-              {/* Lyrics Toggle Button */}
+              {/* Lyrics Toggle Button with micro-animation */}
               <button 
                 onClick={() => {
                   setLyricState(prev => prev === "none" ? "collapsed" : "none");
                 }}
-                className={`p-2 rounded-xl transition-all active:scale-95 ${
+                className={`p-2 rounded-xl transition-all duration-200 active:scale-85 hover:scale-105 ${
                   lyricState !== "none" 
-                    ? "text-cyan-400 bg-cyan-500/10 border border-cyan-500/25" 
-                    : "hover:bg-white/10 text-white/70"
+                    ? "text-cyan-300 bg-cyan-500/20 border border-cyan-400/40 shadow-[0_0_15px_rgba(34,211,238,0.35)]" 
+                    : "hover:bg-white/12 text-white/70 hover:text-white"
                 }`}
-                title="词"
+                title="实时歌词"
               >
-                {/* Custom glowing lyrics text icon */}
-                <span className="text-[13px] font-black tracking-widest block w-4.5 h-4.5 leading-4.5 text-center select-none">词</span>
+                <span className={`text-[13px] font-black tracking-widest block w-4.5 h-4.5 leading-4.5 text-center select-none transition-transform duration-200 ${lyricState !== "none" ? "scale-110" : ""}`}>词</span>
               </button>
 
+              {/* Prev Button with directional micro-bounce */}
               <button 
                 onClick={onPrev}
-                className="p-2 rounded-xl hover:bg-white/10 active:scale-90 transition-all text-white/80"
+                className="p-2 rounded-xl hover:bg-white/12 hover:text-white active:scale-80 active:-translate-x-1 transition-all duration-200 ease-out text-white/80 group/prev"
                 title="上一首"
               >
-                <PrevIcon className="w-4 h-4" />
+                <PrevIcon className="w-4 h-4 transition-transform duration-200 group-hover/prev:scale-110 group-active/prev:scale-95" />
               </button>
 
+              {/* Play/Pause Button with Apple spring morph and shadow */}
               <button 
                 onClick={onPlayPause}
-                className="p-3 rounded-full bg-white text-black hover:scale-105 active:scale-95 shadow-md flex items-center justify-center transition-transform"
+                className="relative p-3 rounded-full bg-white text-black hover:scale-110 active:scale-90 shadow-[0_4px_16px_rgba(0,0,0,0.3)] hover:shadow-[0_0_24px_rgba(255,255,255,0.45)] flex items-center justify-center transition-all duration-200 ease-[cubic-bezier(0.34,1.56,0.64,1)] group/playbtn"
                 title={isPlaying ? "暂停" : "播放"}
               >
-                {isPlaying ? (
-                  <PauseIcon className="w-4 h-4 text-black" />
-                ) : (
-                  <PlayIcon className="w-4 h-4 text-black ml-0.5" />
-                )}
+                <div className="relative w-4 h-4 flex items-center justify-center pointer-events-none">
+                  <PauseIcon
+                    className={`absolute inset-0 w-4 h-4 text-black transition-all duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${
+                      isPlaying ? "opacity-100 scale-100 rotate-0" : "opacity-0 scale-50 -rotate-90"
+                    }`}
+                  />
+                  <PlayIcon
+                    className={`absolute inset-0 w-4 h-4 text-black ml-0.5 transition-all duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${
+                      !isPlaying ? "opacity-100 scale-100 rotate-0" : "opacity-0 scale-50 rotate-90"
+                    }`}
+                  />
+                </div>
               </button>
 
+              {/* Next Button with directional micro-bounce */}
               <button 
                 onClick={onNext}
-                className="p-2 rounded-xl hover:bg-white/10 active:scale-90 transition-all text-white/80"
+                className="p-2 rounded-xl hover:bg-white/12 hover:text-white active:scale-80 active:translate-x-1 transition-all duration-200 ease-out text-white/80 group/next"
                 title="下一首"
               >
-                <NextIcon className="w-4 h-4" />
+                <NextIcon className="w-4 h-4 transition-transform duration-200 group-hover/next:scale-110 group-active/next:scale-95" />
               </button>
             </div>
           </div>

@@ -4,12 +4,13 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
-  const productionBase = env.VITE_BASE_PATH || '/aura-music/';
+  const productionBase = env.VITE_BASE_PATH || '/';
   return {
     base: mode === 'production' ? productionBase : '/',
     server: {
-      port: 3001,
+      port: 3000,
       host: '0.0.0.0',
+      allowedHosts: true,
     },
     plugins: [react()],
     define: {

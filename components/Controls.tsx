@@ -86,7 +86,7 @@ const Controls: React.FC<ControlsProps> = ({
   isBuffering,
   playlistPanel,
 }) => {
-  const { visualizerStyle, amplitudeAnimation } = useSettings();
+  const { visualizerStyle, amplitudeAnimation, coverStyle, setCoverStyle } = useSettings();
   const volumeContainerRef = useRef<HTMLDivElement>(null);
   const settingsContainerRef = useRef<HTMLDivElement>(null);
 
@@ -423,7 +423,7 @@ const Controls: React.FC<ControlsProps> = ({
   return (
     <div className="w-full max-w-[480px] flex flex-col items-center justify-center text-white select-none mx-auto p-4 sm:p-6 font-sans">
       {/* Cover AND Circular Visualizer Section */}
-      <div className="relative w-full aspect-square mb-8 flex items-center justify-center">
+      <div className="relative w-full aspect-square mb-8 flex items-center justify-center group/cover-box">
         {/* Absolute Circular Visualizer Behind Cover if not in player full screen mode */}
         {visualizerStyle === "circular" && (
           <div className="absolute inset-[-10%] z-0 pointer-events-none mix-blend-screen opacity-60 flex items-center justify-center">
@@ -431,14 +431,46 @@ const Controls: React.FC<ControlsProps> = ({
           </div>
         )}
 
+        {/* Apple-style Quick Cover Style Toggle Pill */}
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setCoverStyle(coverStyle === "vinyl" ? "rounded" : "vinyl");
+          }}
+          className="absolute -top-3 right-2 sm:right-4 z-30 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-black/50 hover:bg-black/75 backdrop-blur-2xl border border-white/15 text-white/85 hover:text-white transition-all duration-300 shadow-[0_4px_16px_rgba(0,0,0,0.4)] hover:scale-105 active:scale-95 text-xs font-semibold select-none group/badge cursor-pointer"
+          title={coverStyle === "vinyl" ? "切换为普通圆角封面" : "切换为经典唱片样式"}
+        >
+          {coverStyle === "vinyl" ? (
+            <>
+              <svg className="w-3.5 h-3.5 text-emerald-400 group-hover/badge:rotate-90 transition-transform duration-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="12" r="10" />
+                <circle cx="12" cy="12" r="3" />
+              </svg>
+              <span>唱片</span>
+            </>
+          ) : (
+            <>
+              <svg className="w-3.5 h-3.5 text-cyan-400 group-hover/badge:scale-110 transition-transform duration-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <rect x="3" y="3" width="18" height="18" rx="4" />
+                <circle cx="8.5" cy="8.5" r="1.5" />
+                <path d="m21 15-5-5L5 21" />
+              </svg>
+              <span>圆角</span>
+            </>
+          )}
+        </button>
+
         <animated.div
           style={{
             boxShadow: coverSpring.boxShadow,
             transform: coverSpring.scale.to((s) => `scale(${s})`),
           }}
-          className="relative z-10 aspect-square w-[88%] sm:w-[92%] rounded-full overflow-hidden flex items-center justify-center bg-zinc-950"
+          className={`relative z-10 aspect-square w-[88%] sm:w-[92%] transition-all duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] overflow-hidden flex items-center justify-center bg-zinc-950 ${
+            coverStyle === "vinyl" ? "rounded-full" : "rounded-[28px] sm:rounded-[36px]"
+          }`}
         >
-          <Cover src={coverUrl} isPlaying={isPlaying} />
+          <Cover src={coverUrl} isPlaying={isPlaying} style={coverStyle} />
         </animated.div>
       </div>
 
@@ -699,7 +731,8 @@ const SettingsPopup: React.FC<SettingsPopupProps> = ({
   const {
     lyricAnimation, setLyricAnimation,
     visualizerStyle, setVisualizerStyle,
-    amplitudeAnimation, setAmplitudeAnimation
+    amplitudeAnimation, setAmplitudeAnimation,
+    coverStyle, setCoverStyle,
   } = useSettings();
 
   return (
@@ -707,6 +740,27 @@ const SettingsPopup: React.FC<SettingsPopupProps> = ({
       style={style}
       className="absolute bottom-full left-1/2 -translate-x-1/2 mb-8 z-50 p-4 rounded-[26px] bg-black/10 backdrop-blur-[100px] saturate-150 shadow-[0_20px_50px_rgba(0,0,0,0.3)] border border-white/5 flex gap-4 cursor-auto"
     >
+      {/* Cover Style Column */}
+      <div className="flex flex-col items-center gap-2 w-[4.5rem]">
+        <div className="flex flex-col gap-1.5 w-full bg-white/20 rounded-[20px] p-2 backdrop-blur-[28px] h-[150px] justify-between">
+          <button
+            onClick={() => setCoverStyle("vinyl")}
+            className={`flex-1 rounded-xl flex items-center justify-center text-xs font-bold transition-colors ${coverStyle === "vinyl" ? "bg-white text-black drop-shadow-sm" : "text-white hover:bg-white/20"}`}
+            title="黑胶唱片样式"
+          >
+            唱片
+          </button>
+          <button
+            onClick={() => setCoverStyle("rounded")}
+            className={`flex-1 rounded-xl flex items-center justify-center text-xs font-bold transition-colors ${coverStyle === "rounded" ? "bg-white text-black drop-shadow-sm" : "text-white hover:bg-white/20"}`}
+            title="现代圆角封面"
+          >
+            圆角
+          </button>
+        </div>
+        <span className="text-[10px] font-medium text-white/60">Cover</span>
+      </div>
+
       {/* Visualizer Settings Column */}
       <div className="flex flex-col items-center gap-2 w-[4.5rem]">
         <div className="flex flex-col gap-1.5 w-full bg-white/20 rounded-[20px] p-2 backdrop-blur-[28px] h-[150px] justify-between">
